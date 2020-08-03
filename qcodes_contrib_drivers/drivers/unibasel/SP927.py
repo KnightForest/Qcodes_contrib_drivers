@@ -4,7 +4,7 @@ import visa
 import logging
 from time import sleep
 from functools import partial
-from qcodes import VisaInstrument, InstrumentChannel, ChannelList
+from qcodes import VisaInstrument, InstrumentChannel, ChannelList, MultiParameter
 from qcodes.utils import validators as vals
 log = logging.getLogger(__name__)
 
@@ -33,7 +33,6 @@ class SP927Reader(object):
         
         DACval = (float(volt) + 10) * 838848
         DACval = int(round(DACval))
-        print(DACval)
 
         return DACval
 
@@ -97,6 +96,30 @@ class SP927Channel(InstrumentChannel, SP927Reader):
         Turn off all channel.
         """
         self.write('{:0} OFF'.format(self._channel))
+
+class AllChannels(MultiParameter,SP927Reader):
+
+    def __init__(self, name: str, instrument: VisaInstrument) -> None:
+        super().__init__(name='test', 
+                         names = ('DAC_ch1','DAC_ch2','DAC_ch3','DAC_ch4','DAC_ch5','DAC_ch6','DAC_ch7','DAC_ch8'),
+                         shapes=((), (), (), (), (), (), (), ()),
+                         labels = ('DAC ch1','DAC ch2','DAC ch3','DAC ch4','DAC ch5','DAC ch6','DAC ch7','DAC ch8'),
+                         units = ('V','V','V','V','V','V','V','V'),
+                         setpoints = ((),(),(),(),(),(),(),())
+                         )
+        self._instrument=instrument
+
+
+    def get_raw(self):
+        codes = self._instrument.ask('ALL V?').split(';')
+        #print(codes)
+        volts = [None] * len(codes)
+        for i in range(0,len(codes)):
+            #print(codes[i])
+            #print(SP927Reader._dac_code_to_v(codes[i]))
+            #volts[i] = round((int(codes[i],16) / float(838848)) - 10, 9)
+            volts[i] = self._dac_code_to_v(codes[i])
+        return volts
 
 class SP927(VisaInstrument, SP927Reader):
     """
@@ -174,7 +197,18 @@ class SP927(VisaInstrument, SP927Reader):
         for chan in self.channels:
             chan.volt.inter_delay=inter_delay
             chan.volt.step=step
-            
+        
+        # For use in a measurement
+        self.add_parameter(name='getall_multiparameter',
+                   parameter_class = AllChannels,
+                   )
+        self.add_parameter(name='all',
+                   label='Get all dac values',
+                   unit='V',
+                   set_cmd=self._set_all,
+                   get_cmd=self._get_all,
+                   )
+
         self.connect_message()
 
     def _set_voltage(self, chan, code):
@@ -187,7 +221,7 @@ class SP927(VisaInstrument, SP927Reader):
         return self._dac_code_to_v(dac_code)
 
 
-    def set_all(self, volt):
+    def _set_all(self, volt):
         """
         Set all dac channels to a specific voltage. If channels are set to ramp then the ramps
         will occur in sequence, not simultaneously.
@@ -195,8 +229,19 @@ class SP927(VisaInstrument, SP927Reader):
         Args:
             volt(float): The voltage to set all gates to.
         """
-        for chan in self.channels:
-            chan.volt.set(volt)
+        code = self._dac_v_to_code(volt)
+        self.write('ALL {:X}'.format(code))
+    
+    def _get_all(self):
+        """
+        Get all dac channels. If channels are set to ramp then the ramps
+        will occur in sequence, not simultaneously.
+        """
+        codes = self.ask('ALL V?').split(';')
+        volts = [None] * len(codes)
+        for i in range(0,len(codes)):
+            volts[i] = [self._dac_code_to_v(codes[i])]
+        return volts
             
     def all_on(self):
         """
