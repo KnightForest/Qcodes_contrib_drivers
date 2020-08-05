@@ -271,10 +271,10 @@ class SP927(VisaInstrument, SP927Reader):
     def multiline_ask(self,cmd):
         fullbuff = []
         fullbuff.append(self.ask(cmd))
+        sleep(0.2)
         while self.visa_handle.bytes_in_buffer:
             fullbuff.append(self.visa_handle.read())
-            sleep(0.02) # 20 ms waiting time for the buffer to be re-filled
-        #print(fullbuff)
+            sleep(0.075) # 75 ms waiting time for the buffer to be re-filled
         return fullbuff
 
     def empty_buffer(self):
@@ -284,7 +284,7 @@ class SP927(VisaInstrument, SP927Reader):
             print("Unread bytes in the buffer of DAC SP927 have been found. Reading the buffer:")
             while self.visa_handle.bytes_in_buffer:
                 print(self.visa_handle.read_raw())
-                sleep(0.02) # 20 ms waiting time for buffer to be re-filled
+                sleep(0.075) # 75 ms waiting time for buffer to be re-filled
             print("... done")
             
     def write(self, cmd):
@@ -302,5 +302,6 @@ class SP927(VisaInstrument, SP927Reader):
     def get_idn(self):
         firmware = self.multiline_ask('SOFT?')[1].rstrip()
         sn = self.multiline_ask('HARD?')[1].rstrip()[3:]
+        self.empty_buffer()
         return dict(zip(('vendor', 'model', 'serial', 'firmware'), 
                         ('UniBasel', 'HRLN DAC (SP927)', sn, firmware)))
