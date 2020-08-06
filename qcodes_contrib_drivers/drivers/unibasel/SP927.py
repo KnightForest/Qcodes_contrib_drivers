@@ -4,7 +4,7 @@ import visa
 import logging
 from time import sleep
 from functools import partial
-from qcodes import VisaInstrument, InstrumentChannel, ChannelList
+from qcodes import VisaInstrument, InstrumentChannel, ChannelList, MultiParameter
 from qcodes.utils import validators as vals
 log = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class SP927Reader(object):
         Vout = (DACval / 838’848) – 10
         """
         DACval = DACval.strip()
-        volt = round((int(DACval,16) / float(838848)) - 10, 6)
+        volt = round((int(DACval,16) / float(838848)) - 10, 9)
 
         return volt
 
@@ -78,6 +78,48 @@ class SP927Channel(InstrumentChannel, SP927Reader):
                            get_cmd=partial(self._parent._read_voltage, channel),
                            vals=self._volt_val 
                            )
+        self.add_parameter('status',
+                           label='Channel {} status'.format(channel),
+                           set_cmd=partial(self._parent._set_status, channel),
+                           get_cmd=partial(self._parent._get_status, channel),
+                           val_mapping={'on':  'ON', 'off': 'OFF'} 
+                           )
+
+    def on(self):
+        """
+        Turn on channel.
+        """
+        self.write('{:0} ON'.format(self._channel))
+
+    def off(self):
+        """
+        Turn off all channel.
+        """
+        self.write('{:0} OFF'.format(self._channel))
+
+class AllChannels(MultiParameter,SP927Reader):
+
+    def __init__(self, name: str, instrument: VisaInstrument) -> None:
+        super().__init__(name='test', 
+                         names = ('DAC_ch1','DAC_ch2','DAC_ch3','DAC_ch4','DAC_ch5','DAC_ch6','DAC_ch7','DAC_ch8'),
+                         shapes=((), (), (), (), (), (), (), ()),
+                         labels = ('DAC ch1','DAC ch2','DAC ch3','DAC ch4','DAC ch5','DAC ch6','DAC ch7','DAC ch8'),
+                         units = ('V','V','V','V','V','V','V','V'),
+                         setpoints = ((),(),(),(),(),(),(),())
+                         )
+        self._instrument=instrument
+
+
+    def get_raw(self):
+        codes = self._instrument.ask('ALL V?').split(';')
+        #print(codes)
+        volts = [None] * len(codes)
+        for i in range(0,len(codes)):
+            #print(codes[i])
+            #print(SP927Reader._dac_code_to_v(codes[i]))
+            #volts[i] = round((int(codes[i],16) / float(838848)) - 10, 9)
+            volts[i] = self._dac_code_to_v(codes[i])
+        return volts
 
 class SP927(VisaInstrument, SP927Reader):
     """
@@ -97,7 +139,7 @@ class SP927(VisaInstrument, SP927Reader):
         _ramp_time (int): The ramp time in ms. Default 100 ms.
     """
     
-    def __init__(self, name, address, min_val=-10, max_val=10, baud_rate=9600, **kwargs):
+    def __init__(self, name, address, baud_rate=9600, inter_delay=1e-3, step=1e-3, **kwargs):
         """
 
         Creates an instance of the SP927 LNHR DAC instrument.
@@ -114,7 +156,7 @@ class SP927(VisaInstrument, SP927Reader):
                 This value should correspond to the DAC code 0.
 
             max_val (number): The maximum value in volts that can be output by the DAC.
-                This value should correspond to the DAC code 65536.
+                This value should correspond to the DAC code 16776960.
 
         """
 
@@ -127,11 +169,14 @@ class SP927(VisaInstrument, SP927Reader):
         handle.stop_bits = visa.constants.StopBits.one
         handle.data_bits = 8
         handle.flow_control = visa.constants.VI_ASRL_FLOW_XON_XOFF
-        #handle.set_terminator('\n')
         handle.write_termination = '\n'
+        handle.read_termination = '\r\n'
 
         #self._write_response = ''
-
+        
+        # Hardcoded hardware properties
+        self.min_val=-10
+        self.max_val=10
         self.num_chans = 8
 
         # Create channels
@@ -147,12 +192,23 @@ class SP927(VisaInstrument, SP927Reader):
         channels.lock()
         self.add_submodule('channels', channels)
 
-        # set small ramp speed for all channels (safety)
+        # set ramp speed for all channels (safety default is 1e-3/1e-3)
         
         for chan in self.channels:
-            chan.volt.inter_delay=0.001
-            chan.volt.step=0.001
-            
+            chan.volt.inter_delay=inter_delay
+            chan.volt.step=step
+        
+        # For use in a measurement
+        self.add_parameter(name='getall_multiparameter',
+                   parameter_class = AllChannels,
+                   )
+        self.add_parameter(name='all',
+                   label='Get all dac values',
+                   unit='V',
+                   set_cmd=self._set_all,
+                   get_cmd=self._get_all,
+                   )
+
         self.connect_message()
 
     def _set_voltage(self, chan, code):
@@ -165,7 +221,7 @@ class SP927(VisaInstrument, SP927Reader):
         return self._dac_code_to_v(dac_code)
 
 
-    def set_all(self, volt):
+    def _set_all(self, volt):
         """
         Set all dac channels to a specific voltage. If channels are set to ramp then the ramps
         will occur in sequence, not simultaneously.
@@ -173,14 +229,26 @@ class SP927(VisaInstrument, SP927Reader):
         Args:
             volt(float): The voltage to set all gates to.
         """
-        for chan in self.channels:
-            chan.volt.set(volt)
+        code = self._dac_v_to_code(volt)
+        self.write('ALL {:X}'.format(code))
+    
+    def _get_all(self):
+        """
+        Get all dac channels. If channels are set to ramp then the ramps
+        will occur in sequence, not simultaneously.
+        """
+        codes = self.ask('ALL V?').split(';')
+        volts = [None] * len(codes)
+        for i in range(0,len(codes)):
+            volts[i] = [self._dac_code_to_v(codes[i])]
+        return volts
             
     def all_on(self):
         """
         Turn on all channels.
         """
         self.write('ALL ON')
+
     
     def all_off(self):
         """
@@ -188,13 +256,35 @@ class SP927(VisaInstrument, SP927Reader):
         """
         self.write('ALL OFF')
     
+    def _get_status(self,chan):
+        """
+        Turn on single channels.
+        """
+        return self.ask_raw('{:0} S?'.format(chan))
+        
+    def _set_status(self,chan,val):
+        """
+        Change on/off status of single channel
+        """
+        self.write('{:0} {}'.format(chan,val))
+        
+    def multiline_ask(self,cmd):
+        fullbuff = []
+        fullbuff.append(self.ask(cmd))
+        sleep(0.2)
+        while self.visa_handle.bytes_in_buffer:
+            fullbuff.append(self.visa_handle.read())
+            sleep(0.075) # 75 ms waiting time for the buffer to be re-filled
+        return fullbuff
+
     def empty_buffer(self):
         
         # make sure every reply was read from the DAC 
-        
-        while self.visa_handle.bytes_in_buffer:
-            print("Unread bytes in the buffer of DAC SP927 has been found. Reading the buffer...")
-            self.visa_handle.read_raw()
+        if self.visa_handle.bytes_in_buffer:
+            print("Unread bytes in the buffer of DAC SP927 have been found. Reading the buffer:")
+            while self.visa_handle.bytes_in_buffer:
+                print(self.visa_handle.read_raw())
+                sleep(0.075) # 75 ms waiting time for buffer to be re-filled
             print("... done")
             
     def write(self, cmd):
@@ -210,6 +300,8 @@ class SP927(VisaInstrument, SP927Reader):
         return self.ask(cmd)
     
     def get_idn(self):
-       
+        firmware = self.multiline_ask('SOFT?')[1].rstrip()
+        sn = self.multiline_ask('HARD?')[1].rstrip()[3:]
+        self.empty_buffer()
         return dict(zip(('vendor', 'model', 'serial', 'firmware'), 
-                        ('UniBasel', 'SP927', 'n.a.', 'n.a.')))
+                        ('UniBasel', 'HRLN DAC (SP927)', sn, firmware)))
