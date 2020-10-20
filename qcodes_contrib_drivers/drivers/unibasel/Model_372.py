@@ -217,12 +217,12 @@ class Model_372(VisaInstrument):
         # refer to the same parameter.
         channels = ChannelList(self,
                                "TempSensors",
-                               SensorChannel,
-                               snapshotable=False)
+                               SensorChannel)
         for chan_name in range(1, 17):
             channel = SensorChannel(self,
                                     'Chan{}'.format(chan_name),
-                                    chan_name)
+                                    chan_name,
+                                    snapshotable=False)
             channels.append(channel)
             self.add_submodule('chan{}'.format(chan_name), channel)
         channels.lock()
