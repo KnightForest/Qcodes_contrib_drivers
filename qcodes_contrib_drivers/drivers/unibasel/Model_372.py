@@ -147,28 +147,46 @@ class SensorChannel(InstrumentChannel):
         self._channel = channel  # Channel on the temperature controller. Can be 1-16
 
         # Add the various channel parameters
-        self.add_parameter('temperature', get_cmd='KRDG? {}'.format(self._channel),
-            get_parser=float, label='Temerature', unit='K')
-        self.add_parameter('sensor_raw', get_cmd='SRDG? {}'.format(self._channel),
-            get_parser=float, label='Raw Sensor Reading', unit='Ohms')
-        self.add_parameter('sensor_status', get_cmd='RDGST? {}'.format(self._channel),
-            label='Sensor Status', get_parser=SensorStatus)
-        self.add_parameter('sensor_name', get_cmd='INNAME? {}'.format(self._channel),
-            get_parser=str, set_cmd='INNAME {},\"{{}}\"'.format(self._channel), vals=Strings(15),
-            label='Sensor Name')
-        
-        
-        
-        self.add_parameter('sensor_statset', get_cmd='INSET? {}'.format(self._channel),
-            get_parser=SensorSettings.parse_input, set_cmd='INSET {},{{0.set_format}}'.format(self._channel),
-            vals=SensorSettingsValidator(), label='Sensor Settings')
-        status_parameters = ('enabled', 'dwell', 'pause', 'curve', 'tempco')
+        self.add_parameter('temperature', 
+                           get_cmd='KRDG? {}'.format(self._channel),
+                           get_parser=float,
+                           label='Temerature',
+                           unit='K')
+        self.add_parameter('sensor_raw',
+                           get_cmd='SRDG? {}'.format(self._channel),
+                           get_parser=float,
+                           label='Raw Sensor Reading',
+                           unit='Ohms')
+        self.add_parameter('sensor_status', 
+                           get_cmd='RDGST? {}'.format(self._channel),
+                           label='Sensor Status', 
+                           get_parser=SensorStatus)
+        self.add_parameter('sensor_name',
+                           get_cmd='INNAME? {}'.format(self._channel),
+                           get_parser=str, 
+                           set_cmd='INNAME {},\"{{}}\"'.format(self._channel), 
+                           vals=Strings(15),
+                           label='Sensor Name',
+                           snapshot_exclude=True)
+        self.add_parameter('sensor_statset', 
+                           get_cmd='INSET? {}'.format(self._channel),
+                           get_parser=SensorSettings.parse_input,
+                           set_cmd='INSET {},{{0.set_format}}'.format(self._channel),
+                           vals=SensorSettingsValidator(),
+                           label='Sensor Settings')
+        status_parameters = ('enabled',
+                             'dwell',
+                             'pause',
+                             'curve',
+                             'tempco')
         for param in status_parameters:
-            self.add_parameter('sensor_{}'.format(param), get_cmd='INSET? {}'.format(self._channel),
-                get_parser=partial(SensorSettings.parse_input, field=param), 
-                set_cmd='INSET {},{{0.set_format}}'.format(self._channel), 
-                set_parser=partial(SensorSettings.parse_output, parent=self, field=param),
-                vals=Bool(), label='Sensor {0.capitalize}'.format(param))
+            self.add_parameter('sensor_{}'.format(param),
+                               get_cmd='INSET? {}'.format(self._channel),
+                               get_parser=partial(SensorSettings.parse_input, field=param),
+                               set_cmd='INSET {},{{0.set_format}}'.format(self._channel),
+                               set_parser=partial(SensorSettings.parse_output, parent=self, field=param),
+                               vals=Bool(),
+                               label='Sensor {0.capitalize}'.format(param))
 
 
 
@@ -197,29 +215,34 @@ class Model_372(VisaInstrument):
         # or through a channel list.
         # i.e. Model_336.A.temperature() and Model_336.channels[0].temperature()
         # refer to the same parameter.
-        channels = ChannelList(self, "TempSensors", SensorChannel, snapshotable=False)
+        channels = ChannelList(self,
+                               "TempSensors",
+                               SensorChannel,
+                               snapshotable=False)
         for chan_name in range(1, 17):
-		    
-            channel = SensorChannel(self, 'Chan{}'.format(chan_name), chan_name)
+            channel = SensorChannel(self,
+                                    'Chan{}'.format(chan_name),
+                                    chan_name)
             channels.append(channel)
-			
             self.add_submodule('chan{}'.format(chan_name), channel)
         channels.lock()
         self.add_submodule("channels", channels)
 
-        self.add_parameter('active_channel', get_cmd='SCAN?', set_cmd='SCAN {}',
-            get_parser=partial(self._parse_scan, "CHAN"), 
-            set_parser=partial(self._set_scan, "CHAN"),
-            vals=self.channels.get_validator())
-        self.add_parameter('scan', get_cmd='SCAN?', set_cmd='SCAN {}',
-            get_parser=partial(self._parse_scan, "SCAN"),
-            set_parser=partial(self._set_scan, "SCAN"),
-            vals=Enum('off', 'on'))
-
-        self.add_parameter('setpoint', get_cmd='SETP?', set_cmd='SETP {}')
-      
-            
-   
+        self.add_parameter('active_channel',
+                           get_cmd='SCAN?',
+                           set_cmd='SCAN {}',
+                           get_parser=partial(self._parse_scan, "CHAN"),
+                           set_parser=partial(self._set_scan, "CHAN"),
+                           vals=self.channels.get_validator())
+        self.add_parameter('scan',
+                           get_cmd='SCAN?',
+                           set_cmd='SCAN {}',
+                           get_parser=partial(self._parse_scan, "SCAN"),
+                           set_parser=partial(self._set_scan, "SCAN"),
+                           vals=Enum('off', 'on'))
+        self.add_parameter('setpoint',
+                           get_cmd='SETP?',
+                           set_cmd='SETP {}')
         self.connect_message()
 
     def _parse_scan(self, param, inp):
