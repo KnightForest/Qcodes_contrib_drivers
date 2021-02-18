@@ -17,7 +17,22 @@ import math
 class Cryomagnetics_4G(VisaInstrument):
 
 
-    def __init__(self, name: str, address: str, axes=None, heaters=None, channels=None, terminator="\n", baudrate=9600, serial=True, reset=False, timeout=3, write_confirmation=False, margin=5e-4, curr_margin=2e-3, **kwargs,):
+    def __init__(self, 
+                 name: str, 
+                 address: str, 
+                 axes=None, 
+                 heaters=None, 
+                 channels=None, 
+                 terminator="\n", 
+                 baudrate=9600, 
+                 serial=True, 
+                 reset=False, 
+                 timeout=3, 
+                 write_confirmation=False, 
+                 heaterwait = 30, 
+                 margin=5e-4, 
+                 curr_margin=2e-3, 
+                 **kwargs,):
 
         super().__init__(name=name, address=address, terminator=terminator, **kwargs)
         self.visa_handle.read_termination = terminator
@@ -99,6 +114,7 @@ class Cryomagnetics_4G(VisaInstrument):
         self.MARGIN = margin  # 0.5 Gauss = 5e-4 kG = 5e-5 T = 0.05 mT
         self.CURR_MARGIN = curr_margin  # 2 mA 
         self.RE_ANS = re.compile(r'(-?\d*\.?\d*)([a-zA-Z]+)')
+        self.HEATERWAIT = heaterwait
         self.connect_message()
         
     def get_idn(self):
@@ -412,9 +428,11 @@ class Cryomagnetics_4G(VisaInstrument):
         else:
             return 'OFF'
 
-    def _set_heater(self, axis, val, heaterwait=5):
+    def _set_heater(self, axis, val, heaterwait=None):
+        if heaterwait==None:
+            heaterwait = self.HEATERWAIT
         self._select_channel(axis)
-        time.sleep(heaterwait)
+        time.sleep(5)
         self.write('PSHTR %s' % val)
         time.sleep(heaterwait)
 

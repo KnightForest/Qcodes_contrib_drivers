@@ -17,8 +17,20 @@ import math
 
 class Cryomagnetics_4G_IP(IPInstrument): 
 
-    def __init__(self, name, address=None, port=None, terminator='\r\n', reset=False,
-                 tmpfile=None, timeout=3, write_confirmation=False, axes=None, margin=5e-4, curr_margin=2e-3, **kwargs):
+    def __init__(self, 
+                 name, 
+                 address=None, 
+                 port=None, 
+                 terminator='\r\n', 
+                 reset=False,
+                 tmpfile=None, 
+                 timeout=3, 
+                 write_confirmation=False, 
+                 axes=None, 
+                 heaterwait = 30, 
+                 margin=5e-4, 
+                 curr_margin=2e-3, 
+                 **kwargs):
         super().__init__(name, address=address, port=port, terminator=terminator,
                          timeout=timeout, write_confirmation=write_confirmation, **kwargs)
         self.read_termination='\r\n'
@@ -92,6 +104,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
         self.MARGIN = margin  # 0.5 Gauss = 5e-4 kG = 5e-5 T = 0.05 mT
         self.CURR_MARGIN = curr_margin  # 2 mA 
         self.RE_ANS = re.compile(r'(-?\d*\.?\d*)([a-zA-Z]+)')
+        self.HEATERWAIT = heaterwait
         self.connect_message()
         
     def get_idn(self):
@@ -405,9 +418,11 @@ class Cryomagnetics_4G_IP(IPInstrument):
         else:
             return 'OFF'
 
-    def _set_heater(self, axis, val, heaterwait=5):
+    def _set_heater(self, axis, val, heaterwait=None):
+        if heaterwait==None:
+            heaterwait = self.HEATERWAIT
         self._select_channel(axis)
-        time.sleep(heaterwait)
+        time.sleep(5)
         self.write('PSHTR %s' % val)
         time.sleep(heaterwait)
 
