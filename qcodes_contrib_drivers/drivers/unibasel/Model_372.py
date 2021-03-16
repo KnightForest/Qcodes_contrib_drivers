@@ -221,10 +221,10 @@ class Model_372(VisaInstrument):
         for chan_name in range(1, 17):
             channel = SensorChannel(self,
                                     'Chan{}'.format(chan_name),
-                                    chan_name,
-                                    snapshotable=False)
+                                    chan_name)
             channels.append(channel)
-            self.add_submodule('chan{}'.format(chan_name), channel)
+            self.add_submodule('chan{}'.format(chan_name), 
+                               channel)
         channels.lock()
         self.add_submodule("channels", channels)
 
