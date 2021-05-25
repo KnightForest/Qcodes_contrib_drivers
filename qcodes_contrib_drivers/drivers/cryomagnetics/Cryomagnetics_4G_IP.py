@@ -5,6 +5,7 @@
 """
 
 from qcodes import VisaInstrument
+from qcodes import IPInstrument
 from qcodes.utils.validators import Enum
 
 from functools import partial
@@ -15,21 +16,23 @@ import time
 import re
 import math
 
-class Cryomagnetics_4G_IP(IPInstrument): 
+class Cryomagnetics_4G_IP(IPInstrument):
 
-    def __init__(self, 
-                 name, 
-                 address=None, 
-                 port=None, 
-                 terminator='\r\n', 
+    def __init__(self,
+                 name,
+                 address=None,
+                 port=None,
+                 terminator='\r\n',
                  reset=False,
-                 tmpfile=None, 
-                 timeout=3, 
-                 write_confirmation=False, 
-                 axes=None, 
-                 heaterwait = 30, 
-                 margin=5e-4, 
-                 curr_margin=2e-3, 
+                 tmpfile=None,
+                 timeout=3,
+                 heaters=None,
+                 channels=None,
+                 write_confirmation=False,
+                 axes=None,
+                 heaterwait = 30,
+                 margin=5e-4,
+                 curr_margin=2e-3,
                  **kwargs):
         super().__init__(name, address=address, port=port, terminator=terminator,
                          timeout=timeout, write_confirmation=write_confirmation, **kwargs)
@@ -44,25 +47,25 @@ class Cryomagnetics_4G_IP(IPInstrument):
         self._heaterdict = dict(zip(self._axes, heaters))
         self._channeldict = dict(zip(self._axes, channels))
         #print(self._heaterdict,self._channeldict)
-        
+
         self._field_units = ['kG','T']
         for ax in range(len(self._axes)):
-    
+
             ax_name = self._axes[ax]
-            
+
 
             self.add_parameter(ax_name+'_lowlim',
                                get_cmd=partial(self._get_lowlim, ax_name),
                                set_cmd=partial(self._set_lowlim, ax_name),
                                unit='kG',
                                snapshot_exclude=True)
-            #, snapshotable=False) 
+            #, snapshotable=False)
             self.add_parameter(ax_name+'_uplim',
                                get_cmd=partial(self._get_uplim, ax_name),
                                set_cmd=partial(self._set_uplim, ax_name),
                                unit='kG',
                                snapshot_exclude=True)
-            #, snapshotable=False) 
+            #, snapshotable=False)
             self.add_parameter(ax_name+'_field',
                                get_cmd=partial(self._get_field, ax_name),
                                get_parser=None,
@@ -100,13 +103,13 @@ class Cryomagnetics_4G_IP(IPInstrument):
 
         if reset:
             self.reset()
-            
+
         self.MARGIN = margin  # 0.5 Gauss = 5e-4 kG = 5e-5 T = 0.05 mT
-        self.CURR_MARGIN = curr_margin  # 2 mA 
+        self.CURR_MARGIN = curr_margin  # 2 mA
         self.RE_ANS = re.compile(r'(-?\d*\.?\d*)([a-zA-Z]+)')
         self.HEATERWAIT = heaterwait
         self.connect_message()
-        
+
     def get_idn(self):
         """ Return the Instrument Identifier Message """
         idstr = self.ask('*IDN?')
@@ -126,7 +129,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
        self._select_channel(axis)
        ans = self.ask_custom('UNITS?')
        return ans
-       
+
     def _set_unit(self, axis, val):
         self._select_channel(axis)
         if self._get_drivemode(axis) == 'T' and val == 'A':
@@ -143,12 +146,12 @@ class Cryomagnetics_4G_IP(IPInstrument):
             return 'T'
         else:
             return unit
-       
+
     def _set_drivemode(self, axis, val):
         self._select_channel(axis)
         self.write('UNITS {}'.format(val))
         time.sleep(0.1)
-            
+
     def local(self):
         self.write('LOCAL')
 
@@ -159,15 +162,26 @@ class Cryomagnetics_4G_IP(IPInstrument):
         """
         The instrument first returns the command we sent, and then the response
         """
-        return self.ask(cmd).split(self.visa_handle.read_termination)[0]
-    
+        while True:
+            try:
+                res = self.ask(cmd).split(self.read_termination)[0]
+                break
+            except Exception as e:
+                import time
+                print('Communication error: ', e, ' Query repeated..')
+                pass
+        return res
+
     def get_magnetout(self, axis):
         while True:
             self._select_channel(axis)
-            
+
             ans=self.ask_custom('IMAG?')
+            time.sleep(0.01)
+            ans=self.ask_custom('IMAG?')
+
             m = self.RE_ANS.match(ans)
-            
+
             val, unit = m.groups((0,1))
             try:
                 val = float(val)
@@ -180,10 +194,10 @@ class Cryomagnetics_4G_IP(IPInstrument):
     def get_psuout(self, axis):
         while True:
             self._select_channel(axis)
-            
+
             ans=self.ask_custom('IOUT?')
             m = self.RE_ANS.match(ans)
-            
+
             val, unit = m.groups((0,1))
             try:
                 val = float(val)
@@ -200,7 +214,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
             pass
         else:
             return val*0.1 #kG to T
-            
+
     def _get_psucurrent(self, axis):
         val,unit = self.get_psuout(axis)
         if unit is not 'A':
@@ -233,7 +247,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
         #print('heaterlist',heaterlist)
         for axis in heaterlist:
             if status == 'ON':
-                #print(self._get_heater(axis)) # 
+                #print(self._get_heater(axis)) #
                 if self._get_heater(axis) == 'OFF': # If heater is off, start checks
                     psuval = self.get_psuout(axis)[0]
                     magval = self.get_magnetout(axis)[0]
@@ -259,17 +273,17 @@ class Cryomagnetics_4G_IP(IPInstrument):
 
     def _set_field_persistent(self, axis, val, heatersync=True, zeroleads=True):
         self._set_field(axis,val, persistent=True, heatersync=heatersync, zeroleads=zeroleads)
-    
+
     def _set_field(self, axis, val, wait=True, persistent=False, heatersync=True, zeroleads=False):
         field,unit = self.get_magnetout(axis)
-        
+
         if unit is 'A':
             print('Power supply in ampere mode, switch to field drivemode')
             pass
         else:
             fieldtesla = 0.1*field #Converting magnetout from kG to T
             self._select_channel(axis)
-            
+
             # Only relevant if heater is present
             if True in self._heaterdict.values():
                 self.heatercontrol(axis,'ON',heatersync)
@@ -300,7 +314,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
 
     def _set_curr(self, axis, val, wait=True):
         curr,unit = self.get_magnetout(axis)
-            
+
         if unit is not 'A':
             print('Power supply in field mode, switch to ampere drivemode')
             pass
@@ -329,7 +343,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
 
             # Only relevant if heater is present
             if self._heaterdict[axis]: # Checks if axis has heater
-                #print(self._get_heater(axis)) # 
+                #print(self._get_heater(axis)) #
                 if self._get_heater(axis) == 'OFF': # If heater is off, start checks
                     psuval = self._get_psucurrent(axis)
                     magval = self._get_current(axis)
@@ -365,7 +379,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
         self._select_channel(axis)
         ans = self.ask_custom('SWEEP?')
         return ans
-        
+
     def _set_sweep(self, axis, cmd):
         self._select_channel(axis)
         cmd = cmd.upper()
@@ -373,7 +387,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
             logging.warning('Invalid sweep mode selected')
             return False
         self.write('SWEEP %s' % cmd)
-      
+
     def _sweep_up(self, axis, fast=False):
         if not fast:
             cmd = 'UP SLOW'
@@ -387,7 +401,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
         else:
             cmd = 'DOWN FAST'
         return self._set_sweep(axis, cmd)
-      
+
     def _get_lowlim(self, axis):
         self._select_channel(axis)
         ans = self.ask_custom('LLIM?')
@@ -395,7 +409,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
         val, unit = m.groups((0,1))
         return val
 
-    def _set_lowlim(self, axis, val): 
+    def _set_lowlim(self, axis, val):
         self._select_channel(axis)
         self.write('LLIM %f' % val)
 
