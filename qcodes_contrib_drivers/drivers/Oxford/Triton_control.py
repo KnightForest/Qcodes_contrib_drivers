@@ -182,7 +182,6 @@ class Triton(IPInstrument):
         return self.pid_setpoint.get()
         
     def _set_autotempcontrol(self,val,wait=True):
-        print(val)
         tolerance = 0.02
         #PID: 6 11 4
         pidp = 6
