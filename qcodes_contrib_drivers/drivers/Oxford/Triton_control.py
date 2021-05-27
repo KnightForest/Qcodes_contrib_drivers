@@ -242,7 +242,7 @@ class Triton(IPInstrument):
         if val > 1.5 and val <= 2.:
             self.write('SET:DEV:T6:TEMP:MEAS:ENAB:OFF')
             self.write('SET:DEV:T5:TEMP:MEAS:ENAB:ON')
-            self._set_control_channel(6)
+            self._set_control_channel(5)
             print('Warning: you need to recondense when cooling down again')
             self.pid_range.set(31.6)
             if self.turbo.get() == 'on':
