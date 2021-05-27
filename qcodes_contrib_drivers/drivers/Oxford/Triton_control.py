@@ -38,7 +38,7 @@ class Triton(IPInstrument):
 
         self._heater_range_auto = False
         self._heater_range_temp = [0.03, 0.1, 0.3, 1, 12, 40]
-        self._heater_range_curr = [0.316, 1, 3.16, 10, 31.6, 100]
+        self._heater_range_curr = [0.0, 0.316, 1, 3.16, 10, 31.6, 100]
         self._control_channel = 5
 
         self.add_parameter(name='turbo',
@@ -179,13 +179,10 @@ class Triton(IPInstrument):
         self.connect_message()
 
     def _get_autotempcontrol(self):
-        if self._get_control_channel() == 5:
-            actualtemp = self.T5.get()
-        if self._get_control_channel() == 6:
-            actualtemp = self.T6.get()
-        return actualtemp
+        return self.pid_setpoint.get()
         
     def _set_autotempcontrol(self,val,wait=True):
+        print(val)
         tolerance = 0.02
         #PID: 6 11 4
         pidp = 6
@@ -246,7 +243,7 @@ class Triton(IPInstrument):
         if val > 1.5 and val <= 2.:
             self.write('SET:DEV:T6:TEMP:MEAS:ENAB:OFF')
             self.write('SET:DEV:T5:TEMP:MEAS:ENAB:ON')
-            self._set_control_channel(5)
+            self._set_control_channel(6)
             print('Warning: you need to recondense when cooling down again')
             self.pid_range.set(31.6)
             if self.turbo.get() == 'on':
