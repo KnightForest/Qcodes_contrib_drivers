@@ -179,7 +179,11 @@ class Triton(IPInstrument):
         self.connect_message()
 
     def _get_autotempcontrol(self):
-        return self.pid_setpoint.get()
+        if self._get_control_channel() == 5:
+            actualtemp = self.T5.get()
+        if self._get_control_channel() == 6:
+            actualtemp = self.T6.get()
+        return actualtemp
         
     def _set_autotempcontrol(self,val,wait=True):
         tolerance = 0.02
@@ -422,7 +426,7 @@ class Triton(IPInstrument):
     def _set_control_channel(self, channel: int) -> None:
         self._control_channel = channel
         self.write('SET:DEV:T{}:TEMP:LOOP:HTR:H1'.format(
-            self._get_control_channel()))
+            channel))
 
     def _get_control_param(
             self,
