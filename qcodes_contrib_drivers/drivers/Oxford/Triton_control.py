@@ -9,6 +9,7 @@ from qcodes import IPInstrument
 from qcodes.utils.validators import Enum, Ints
 
 from time import sleep
+import sys
 
 
 class Triton(IPInstrument):
@@ -32,27 +33,35 @@ class Triton(IPInstrument):
             terminator: str = '\r\n',
             tmpfile: Optional[str] = None,
             timeout: float = 20,
+            pid = None,
+            condense_tlim = 1.2,
+            tlim_safety = True,
             **kwargs: Any):
         super().__init__(name, address=address, port=port,
                          terminator=terminator, timeout=timeout, **kwargs)
 
         self._heater_range_auto = False
-        self._heater_range_temp = [0.03, 0.1, 0.3, 1, 12, 40]
-        self._heater_range_curr = [0.0, 0.316, 1, 3.16, 10, 31.6, 100]
-        self._control_channel = 5
+        self._heater_range_temp = [0.0, 0.015, 0.025, 0.07,  0.2,  1.5,  40.,  300]
+        self._heater_range_curr = [0.0, 0.316, 1,     3.16,  10.,  31.6, 100., 100.]
+        self._heaterdict = dict(zip(self._heater_range_temp,self._heater_range_curr))
+        #self._control_channel = 5
 
-        self.add_parameter(name='turbo',
-                           label='turbo',
-                           get_cmd=partial(self._get_turbo),
-                           set_cmd=partial(self._set_turbo),
+        self.add_parameter(name='turbo_status',
+                           label='turbo_status',
+                           get_cmd=partial(self._get_turbo_status),
+                           set_cmd=partial(self._set_turbo_status),
                            val_mapping={'on':  'ON', 'off': 'OFF'})
+        
+        self.add_parameter(name='turbo_speed',
+                           label='turbo_speed',
+                           unit = 'Hz',
+                           get_cmd=partial(self._get_turbo_speed))
 
         self.add_parameter(name='autotemperature',
                            label='autotemperature',
                            unit='K',
                            get_cmd=partial(self._get_autotempcontrol),
-                           set_cmd=partial(self._set_autotempcontrol)
-                           )
+                           set_cmd=partial(self._set_autotempcontrol))
 
         self.add_parameter(name='time',
                            label='System Time',
@@ -169,123 +178,77 @@ class Triton(IPInstrument):
             self._get_temp_channel_names(tmpfile)
         self._get_temp_channels()
         self._get_pressure_channels()
-
+        self._get_valve_channels()
+        self._control_channel = None 
+        self._control_channel = self._get_control_channel()
+        self._get_pid_channels()
+        if pid is not None:
+            self.pid_P.set(pid[0])
+            self.pid_I.set(pid[1])
+            self.pid_D.set(pid[2])
         try:
             self._get_named_channels()
         except:
             logging.warning('Ignored an error in _get_named_channels\n' +
                             format_exc())
 
+        self.condense_tlim = condense_tlim
+        self.tlim_safety = tlim_safety
         self.connect_message()
 
     def _get_autotempcontrol(self):
-        if self._get_control_channel() == 5:
-            actualtemp = self.T5.get()
-        if self._get_control_channel() == 6:
-            actualtemp = self.T6.get()
-        return actualtemp
+        return eval("self.%s.get()" % (self ._get_named_control_channel()))
+
+    def _checkcirculating(self,tlim):
+        if self.turbo_status.get() == 'on' and (self.MC.get()) < tlim and (self.P2.get()) < 2.5 and (self.P1.get()) < 5e-2:
+            return True
+        else:
+            return False
+
+    def _set_autotempcontrol(self,val,wait=True,tolerance = 0.02):
+        print('Temperature setpoint: '+ str(val) + ' K')
+        #self.pid_mode.set('off')
+        sleep(1)
         
-    def _set_autotempcontrol(self,val,wait=True):
-        tolerance = 0.02
-        #PID: 6 11 4
-        pidp = 6
-        pidi = 11
-        pidd = 4
-        print('temptoset :'+ str(val))
+        # heater routine below tlim (while circulating)
+        if val <= self.condense_tlim and self._checkcirculating(self.condense_tlim)==True:
+            if self._get_named_control_channel != 'MC':
+                self._set_named_control_channel('MC')
+            if self.MC_status.get() == 'off':
+                self.MC_status.set('on')
+            if self.COOL_status.get() == 'on':
+                self.COOL_status.set('off')
+            #self.pid_mode.set('off')
+        else:
+            print('Temperature control below ' + str(self.condense_tlim) + ' K not possible, recondense first.')
+            #break
         
-        if val <= 0.015:
-            self.write('SET:DEV:T6:TEMP:MEAS:ENAB:OFF')
-            self.write('SET:DEV:T5:TEMP:MEAS:ENAB:ON')
-            self._set_control_channel(5)
-            if self.turbo.get() == 'off':
-                self.turbo.set('on')
-            self.pid_mode.set('off')
-        if val > 0.015 and val <= 0.025:
-            self.write('SET:DEV:T6:TEMP:MEAS:ENAB:OFF')
-            self.write('SET:DEV:T5:TEMP:MEAS:ENAB:ON')
-            self._set_control_channel(5)
-            if self.turbo.get() == 'off':
-                self.turbo.set('on')
-            self.pid_range.set(0.316)
-        if val > 0.025 and val <= 0.05:
-            self.write('SET:DEV:T6:TEMP:MEAS:ENAB:OFF')
-            self.write('SET:DEV:T5:TEMP:MEAS:ENAB:ON')
-            self._set_control_channel(5)
-            if self.turbo.get() == 'off':
-                self.turbo.set('on')
-            self.pid_range.set(1.)
-        if val > 0.05 and val <= 0.25:
-            self.write('SET:DEV:T6:TEMP:MEAS:ENAB:OFF')
-            self.write('SET:DEV:T5:TEMP:MEAS:ENAB:ON')
-            self._set_control_channel(5)
-            self.pid_range.set(3.16)
-            if self.turbo.get() == 'off':
-                self.turbo.set('on')
-        if val > 0.25 and val <= 0.8:
-            self.write('SET:DEV:T6:TEMP:MEAS:ENAB:OFF')
-            self.write('SET:DEV:T5:TEMP:MEAS:ENAB:ON')
-            self._set_control_channel(5)
-            self.pid_range.set(10.)
-            if self.turbo.get() == 'off':
-                self.turbo.set('on')
-        if val > 0.8 and val <= 1.3:
-            self.write('SET:DEV:T6:TEMP:MEAS:ENAB:OFF')
-            self.write('SET:DEV:T5:TEMP:MEAS:ENAB:ON')
-            self._set_control_channel(5)
-            self.pid_range.set(10)
-            if self.turbo.get() == 'off':
-                self.turbo.set('on')
-        if val > 1.3 and val <= 1.5:
-            self.write('SET:DEV:T6:TEMP:MEAS:ENAB:OFF')
-            self.write('SET:DEV:T5:TEMP:MEAS:ENAB:ON')
-            self._set_control_channel(5)
-            self.pid_range.set(10)
-            if self.turbo.get() == 'on':
-                self.turbo.set('off')
-        #warning: you need to re-condense after going to T > 1.5
-        if val > 1.5 and val <= 2.:
-            self.write('SET:DEV:T6:TEMP:MEAS:ENAB:OFF')
-            self.write('SET:DEV:T5:TEMP:MEAS:ENAB:ON')
-            self._set_control_channel(5)
-            print('Warning: you need to recondense when cooling down again')
-            self.pid_range.set(31.6)
-            if self.turbo.get() == 'on':
-                self.turbo.set('off')
-            self.write('SET:DEV:V9:VALV:SIG:STATE:CLOSE')
-            self.write('SET:DEV:V4:VALV:SIG:STATE:OPEN')
-        if val > 2 and val <= 3.:
-            self.write('SET:DEV:T6:TEMP:MEAS:ENAB:ON')
-            self.write('SET:DEV:T5:TEMP:MEAS:ENAB:OFF')
-            self._set_control_channel(6)
-            print('Switched to control channel 6')
-            print('Warning: you need to recondense when cooling down again')
-            self.pid_range.set(31.6)
-            if self.turbo.get() == 'on':
-                self.turbo.set('off')
-            self.write('SET:DEV:V9:VALV:SIG:STATE:CLOSE')
-            self.write('SET:DEV:V4:VALV:SIG:STATE:OPEN')
-        if val > 3.:
-            self.write('SET:DEV:T6:TEMP:MEAS:ENAB:ON')
-            self.write('SET:DEV:T5:TEMP:MEAS:ENAB:OFF')
-            self._set_control_channel(6)
-            print('Switched to control channel 6')
-            print('Warning: you need to recondense when cooling down again')
-            self.pid_range.set(100)
-            if self.turbo.get() == 'on':
-                self.turbo.set('off')
-            self.write('SET:DEV:V9:VALV:SIG:STATE:CLOSE')
-            self.write('SET:DEV:V4:VALV:SIG:STATE:OPEN')
-        
-        cchan = self._get_control_channel()
-        self.write('SET:DEV:T{}:TEMP:LOOP:P:{}'.format(cchan, pidp))
-        self.write('SET:DEV:T{}:TEMP:LOOP:I:{}'.format(cchan, pidi))
-        self.write('SET:DEV:T{}:TEMP:LOOP:D:{}'.format(cchan, pidd))
+        #heater routine above tlim (turbo off and mixture collected)
+        if val > self.condense_tlim :
+            if self.tlim_safety == False:
+                print('Warning: you\'ll need to recondense for temperature control below ' + str(self.condense_tlim) + ' K.')
+                if self.turbo_status.get() == 'on':
+                    self.turbo_status.set('off')
+                while self.turbo_speed.get() > 100:
+                    print('Waiting for turbo to spin down below 100 Hz, currently ' + str(self.turbo_speed.get()) + ' Hz.')
+                    sleep(10)
+                    self.V9.set('closed')
+                    self.V4.set('open')
+            else:
+                print('Temperature control above condense limit of ' + str(self.condense_tlim) + ' K not allowed.')
+            #break
+            
+        for i,hval in enumerate(self._heater_range_temp): #Select correct heater range
+            if val >= self._heater_range_temp[i] and val < self._heater_range_temp[i+1]:
+                heaterval = self._heaterdict[hval]
+                self.pid_range.set(heaterval)
+                print('Heater set to ' + str(heaterval) + ' mA')
 
         if self.pid_mode.get() == 'off' and val > 0.015:
             self.pid_mode.set('on')
-        
-        sleep(1)
+            sleep(1)
         self.pid_setpoint.set(str(val))
+        sleep(1)
         if wait==True:
             actualtemp = self._istempreached(val,tolerance)
             return actualtemp
@@ -302,26 +265,33 @@ class Triton(IPInstrument):
             thigh = thighperc
             tlow = tlowperc
 
-        print('thigh:' + str(thigh) + ' tlow:' + str(tlow))
-        stability_samples_limit = 2 # consequtive samples within tolerance to be considered stable
+        print('Temp. lower limit: ' + "{:.4f}".format(tlow) + ' K\nTemp. upper limit: ' + "{:.4f}".format(thigh) + ' K')
+        stability_samples_limit = 2 # consecutive samples within tolerance to be considered stable
         stability_samples = 0       # init
-        tlow_samples_limit = 4      # increases heater power after n-samples
+        tlow_samples_limit = 5      # increases heater power after n-samples
         tlow_samples = 0            # init
         tick = 60                   # polling interval, choose not lower than lakeshore update freq (60 s)
-        sleep(tick)
+        for i in range(0,int(tick)): # allows keyboard interrupts every second
+            sleep(1)
         while stability_samples != stability_samples_limit:
-            if self._get_control_channel() == 5:
-                actualtemp = self.T5.get()
-            elif self._get_control_channel() == 6:
-                actualtemp = self.T6.get()
+            actualtemp = eval("self.%s.get()" % (self ._get_named_control_channel()))
+            for i in range(0,int(tick)): # allows keyboard interrupts every second
+                if self.turbo_status.get()=='on':
+                    if self.P3.get() > 3e-3 or self.P2.get() > 2.5:
+                        self.pid_setpoint.set(str(0))
+                        self.pid_range.set(0.0)
+                        self.pid_mode.set('off')
+                        sys.exit('Temperature control aborted, P2 at ' + "{:.4f}".format(self.P2.get()) + ' Bar, P3 at ' + "{:.4f}".format(self.P3.get()*1e3) + ' mBar.')
+                        # throw error and abort
+                sleep(1)
             if actualtemp > tlow and actualtemp < thigh:
                 stability_samples = stability_samples + 1
                 print('T = '+ str(actualtemp) + ', waiting for temp to stabilise. Samples:' + str(stability_samples))
-            if actualtemp < tlow:
+            elif actualtemp < tlow:
                 stability_samples = 0
                 tlow_samples = tlow_samples + 1
                 print('Waiting to reach temp, temp = ' + str(actualtemp) + ' Tlow_samples:' + str(tlow_samples))
-            if actualtemp > thigh:
+            elif actualtemp > thigh:
                 if val > 1.5:
                     self.pid_range.set(10.)
                 stability_samples = 0
@@ -334,17 +304,19 @@ class Triton(IPInstrument):
                     self.pid_range.set(self._heater_range_curr[heatind+1])
                     print('heater power increased to: ' + str(self._heater_range_curr[heatind+1]))
                 #timeout = 0
-            sleep(tick)
         print('Temp reached & stable')
         return(actualtemp)
 
-    def _get_turbo(self):
+    def _get_turbo_status(self):
         result = self.ask('READ:DEV:TURB1:PUMP:SIG:STATE')
         result = (result.replace('STAT:DEV:TURB1:PUMP:SIG:STATE:',''))
         return result
 
-    def _set_turbo(self, val):
+    def _set_turbo_status(self, val):
         self.write('SET:DEV:TURB1:PUMP:SIG:STATE:{}'.format(val))
+
+    def _get_turbo_speed(self):
+        return float(self.ask('READ:DEV:TURB1:PUMP:SIG:SPD').split(':')[-1].split('Hz')[0])
 
     def set_B(self, x: float, y: float, z: float, s: float) -> None:
         if 0 < s <= 0.2:
@@ -403,7 +375,6 @@ class Triton(IPInstrument):
         """ Return the Instrument Identifier Message """
         idstr = self.ask('*IDN?')
         idparts = [p.strip() for p in idstr.split(':', 4)][1:]
-
         return dict(zip(('vendor', 'model', 'serial', 'firmware'), idparts))
 
     def _get_control_channel(self, force_get: bool = False) -> int:
@@ -414,7 +385,6 @@ class Triton(IPInstrument):
                 f'READ:DEV:T{self._control_channel}:TEMP:LOOP:MODE')
             if not tempval.endswith('NOT_FOUND'):
                 return self._control_channel
-
         # either _control_channel is not set or wrong
         for i in range(1, 17):
             tempval = self.ask(f'READ:DEV:T{i}:TEMP:LOOP:MODE')
@@ -504,6 +474,25 @@ class Triton(IPInstrument):
                                    unit='K',
                                    get_cmd='READ:DEV:%s:TEMP:SIG:TEMP' % chan,
                                    get_parser=self._parse_temp)
+                self.add_parameter(name=alias + '_status',
+                                   get_cmd='READ:DEV:%s:TEMP:MEAS:ENAB' % chan,
+                                   get_parser=self._parse_temp_stat,
+                                   set_cmd=partial(self._set_named_temp_stat,chan),
+                                   val_mapping={'on':  'ON', 'off': 'OFF'})
+
+    def _set_named_temp_stat(self,chan,val):
+        self.write('SET:DEV:{}:TEMP:MEAS:ENAB:{}'.format(chan, val))
+        sleep(1)
+
+    def _get_named_control_channel(self):
+        chandict = self.chan_alias
+        t = 'T'+ str(self._get_control_channel())
+        for name, age in chandict.items():
+            if age == t:
+                return name
+
+    def _set_named_control_channel(self, channame):
+        self._set_control_channel(int(self.chan_alias[channame].split('T')[-1]))
 
     def _get_pressure_channels(self) -> None:
         chan_pressure_list = []
@@ -515,6 +504,22 @@ class Triton(IPInstrument):
                                get_cmd='READ:DEV:%s:PRES:SIG:PRES' % chan,
                                get_parser=self._parse_pres)
         self.chan_pressure = set(chan_pressure_list)
+
+    def _get_valve_channels(self) -> None:
+        chan_valve_list = []
+        for i in range(1, 10):
+            chan = 'V%d' % i
+            chan_valve_list.append(chan)
+            self.add_parameter(name=chan,
+                               get_cmd='READ:DEV:%s:VALV:SIG:STATE' % chan,
+                               get_parser=self._parse_valve,
+                               set_cmd=partial(self._set_valve_status,chan),
+                               val_mapping={'open':  'OPEN', 'closed': 'CLOSE'})
+        self.chan_valve = set(chan_valve_list)
+
+    def _set_valve_status(self,chan,val):
+        self.write('SET:DEV:%s:VALV:SIG:STATE:%s' % (chan, val))
+        sleep(1)
 
     def _get_temp_channel_names(self, file: str) -> None:
         config = configparser.ConfigParser()
@@ -542,7 +547,38 @@ class Triton(IPInstrument):
                                unit='K',
                                get_cmd='READ:DEV:%s:TEMP:SIG:TEMP' % chan,
                                get_parser=self._parse_temp)
+            self.add_parameter(name=chan + '_status',
+                               unit='K',
+                               get_cmd='READ:DEV:%s:TEMP:MEAS:ENAB' % chan,
+                               get_parser=self._parse_temp_stat,
+                               set_cmd=partial(self._set_temp_stat,chan),
+                               val_mapping={'on':  'ON', 'off': 'OFF'})
         self.chan_temps = set(chan_temps_list)
+
+    def _set_temp_stat(self,chan,val):
+        self.write('SET:DEV:{}:TEMP:MEAS:ENAB:{}'.format(chan, val))
+        sleep(1)
+
+    def _get_pid_channels(self) -> None:
+        chan_pid_list = []
+        for i, pid in enumerate(['P','I','D']):
+            chan = pid
+            chan_pid_list.append(chan)
+            self.add_parameter(name='pid_' +chan,
+                               unit='',
+                               get_cmd=partial(self._get_pid,chan),
+                               get_parser=self._parse_pid,
+                               set_cmd=partial(self._set_pid,chan))
+        self.chan_pid = set(chan_pid_list)
+
+    def _get_pid(self,chan):
+        cchan = self._get_control_channel()
+        return(self.ask('READ:DEV:T{}:TEMP:LOOP:{}'.format(cchan,chan)).split(':')[-1])
+
+    def _set_pid(self,chan,val):
+        cchan = self._get_control_channel()
+        self.write('SET:DEV:T{}:TEMP:LOOP:{}:{}'.format(cchan, chan, val))
+        sleep(0.1)
 
     def _parse_action(self, msg: str) -> str:
         """ Parse message and return action as a string
@@ -580,10 +616,25 @@ class Triton(IPInstrument):
             return None
         return float(msg.split('SIG:TEMP:')[-1].strip('K'))
 
+    def _parse_temp_stat(self, msg: str) -> Optional[float]:
+        if 'NOT_FOUND' in msg:
+            return None
+        return msg.split(':')[-1]
+
     def _parse_pres(self, msg: str) -> Optional[float]:
         if 'NOT_FOUND' in msg:
             return None
-        return float(msg.split('SIG:PRES:')[-1].strip('mB')) * 1e3
+        return float(msg.split('SIG:PRES:')[-1].strip('mB')) / 1e3
+
+    def _parse_valve(self, msg: str) -> Optional[float]:
+        if 'NOT_FOUND' in msg:
+            return None
+        return msg.split(':')[-1]
+
+    def _parse_pid(self, msg: str) -> Optional[float]:
+        if 'NOT_FOUND' in msg:
+            return None
+        return msg.split(':')[-1]
 
     def _recv(self) -> str:
         return super()._recv().rstrip()
