@@ -45,9 +45,9 @@ class Cryomagnetics_4G(VisaInstrument):
             self.visa_handle.data_bits = 8
             self.visa_handle.flow_control = 0
 
-        if len(heaters) is not len(axes):
+        if len(heaters) != len(axes):
             raise ValueError('Heater must be specified for every axis')
-        if len(channels) is not len(axes):
+        if len(channels) != len(axes):
             raise ValueError('Channel must be specified for every axis')
         self._axes = [x.lower() for x in axes]
         self._address = address
@@ -149,7 +149,7 @@ class Cryomagnetics_4G(VisaInstrument):
     def _get_drivemode(self, axis):
         self._select_channel(axis)
         unit = self.ask_custom('UNITS?')
-        if unit is not 'A':
+        if unit != 'A':
             return 'T'
         else:
             return unit
@@ -213,7 +213,7 @@ class Cryomagnetics_4G(VisaInstrument):
             
     def _get_psucurrent(self, axis):
         val,unit = self.get_psuout(axis)
-        if unit is not 'A':
+        if unit != 'A':
             print('Power supply in field mode, switch to ampere drivemode')
             pass
         else:
@@ -248,7 +248,7 @@ class Cryomagnetics_4G(VisaInstrument):
                     psuval = self.get_psuout(axis)[0]
                     magval = self.get_magnetout(axis)[0]
                     print(psuval,magval)
-                    if psuval is not magval: # Check if PSU and coil match
+                    if psuval != magval: # Check if PSU and coil match
                         print('Heater is off, matching PSU with magnets in lead..')
                         if magval > psuval: # If not, match PSU and coil
                             self._set_uplim(axis, magval)
@@ -302,7 +302,7 @@ class Cryomagnetics_4G(VisaInstrument):
 
     def _get_curr(self, axis):
         val,unit = self.get_magnetout(axis)
-        if unit is not 'A':
+        if unit != 'A':
             print('Power supply in field mode, switch to ampere drivemode')
             pass
         else:
@@ -311,7 +311,7 @@ class Cryomagnetics_4G(VisaInstrument):
     def _set_curr(self, axis, val, wait=True):
         curr,unit = self.get_magnetout(axis)
             
-        if unit is not 'A':
+        if unit != 'A':
             print('Power supply in field mode, switch to ampere drivemode')
             pass
         else:
@@ -344,7 +344,7 @@ class Cryomagnetics_4G(VisaInstrument):
                     psuval = self._get_psucurrent(axis)
                     magval = self._get_current(axis)
                     # print(psuval,magval)
-                    if psuval is not magval: # Check if PSU and coil match
+                    if psuval != magval: # Check if PSU and coil match
                         print('Heater is off, matching PSU with magnets in lead..')
                         if magval > psuval: # If not, match PSU and coil
                             print(psuval,magval)
