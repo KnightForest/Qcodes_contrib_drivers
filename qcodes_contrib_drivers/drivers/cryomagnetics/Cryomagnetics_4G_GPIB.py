@@ -20,18 +20,18 @@ class Cryomagnetics_4G(VisaInstrument):
     def __init__(self, 
                  name: str, 
                  address: str, 
-                 axes=None, 
-                 heaters=None, 
-                 channels=None, 
                  terminator="\n", 
-                 baudrate=9600, 
+                 baudrate=9600, #Connect with same baudrate as set in the instrument 
                  serial=True, 
-                 reset=False, 
-                 timeout=3, 
                  write_confirmation=False, 
-                 heaterwait = 30, 
-                 margin=5e-4, 
-                 curr_margin=2e-3, 
+                 axes=None, # Array of axis names, one per channel (internal PSUs in unit). Examples: ['z'], ['x','y']
+                 channels=None, # Array of channels with length axes (number of internal PSUs in unit). For single channel: [1], for two channels: [1,2]
+                 heaters=None, # Array of Booleans with length axes, indicating whether the axis/channel has a heater. Example: [False,True]
+                 reset=False, # Resets instrument upon connecting
+                 timeout=3, # Timeout for communcation with driver
+                 heaterwait = 30, # Waiting time for the heater to switch on or off. This is a low limit!
+                 margin=5e-4, # Margin of field in T for the magnet to be considered at setpoint 
+                 curr_margin=2e-3, # Margin of current in A for the magnet to be considered at setpoint 
                  **kwargs,):
 
         super().__init__(name=name, address=address, terminator=terminator, **kwargs)
@@ -111,8 +111,8 @@ class Cryomagnetics_4G(VisaInstrument):
         if reset:
             self.reset()
             
-        self.MARGIN = margin  # 0.5 Gauss = 5e-4 kG = 5e-5 T = 0.05 mT
-        self.CURR_MARGIN = curr_margin  # 2 mA 
+        self.MARGIN = margin
+        self.CURR_MARGIN = curr_margin 
         self.RE_ANS = re.compile(r'(-?\d*\.?\d*)([a-zA-Z]+)')
         self.HEATERWAIT = heaterwait
         self.connect_message()
@@ -169,12 +169,20 @@ class Cryomagnetics_4G(VisaInstrument):
         """
         The instrument first returns the command we sent, and then the response
         """
-        return self.ask(cmd).split(self.visa_handle.read_termination)[0]
+        while True:
+            try:
+                res = self.ask(cmd).split(self.read_termination)[0]
+                break
+            except Exception as e:
+                print('Communication error: ', e, ' Query repeated..')
+                pass
+        return res
     
     def get_magnetout(self, axis):
         while True:
             self._select_channel(axis)
-            
+            ans=self.ask_custom('IMAG?')
+            time.sleep(0.01)
             ans=self.ask_custom('IMAG?')
             m = self.RE_ANS.match(ans)
             
