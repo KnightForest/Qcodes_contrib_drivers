@@ -8,7 +8,7 @@ from qcodes.utils.validators import Enum
 
 from functools import partial
 
-import visa
+import pyvisa as visa
 import logging
 import time
 import re
@@ -205,7 +205,7 @@ class Cryomagnetics_4G(VisaInstrument):
 
     def _get_psufield(self, axis):
         val,unit = self.get_psuout(axis)
-        if unit is 'A':
+        if unit == 'A':
             print('Power supply in ampere mode, switch to field drivemode')
             pass
         else:
@@ -221,7 +221,7 @@ class Cryomagnetics_4G(VisaInstrument):
 
     def _get_field(self, axis):
         val,unit = self.get_magnetout(axis)
-        if unit is 'A':
+        if unit == 'A':
             print('Power supply in ampere mode, switch to field drivemode')
             pass
         else:
@@ -273,7 +273,7 @@ class Cryomagnetics_4G(VisaInstrument):
     def _set_field(self, axis, val, wait=True, persistent=False, heatersync=True, zeroleads=False):
         field,unit = self.get_magnetout(axis)
         
-        if unit is 'A':
+        if unit == 'A':
             print('Power supply in ampere mode, switch to field drivemode')
             pass
         else:
