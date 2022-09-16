@@ -26,11 +26,6 @@ class IVVI(VisaInstrument):
     http://qtwork.tudelft.nl/~schouten/ivvi/doc-d5/rs232linkformat.txt
     A copy of this file can be found at the bottom of this file.
     '''
-    
-    full_range = 4000.0
-    half_range = full_range / 2
-    resolution = 16
-    dac_quata = full_range / 2**resolution
 
     def __init__(self, name, address, reset=False, numdacs=16, dac_step=10,
                  dac_delay=.1, safe_version=True,
@@ -57,6 +52,14 @@ class IVVI(VisaInstrument):
                               thread safe at the cost of making the call to ask
                               blocking.
         '''
+
+
+        self.full_range = 4000.0
+        self.half_range = self.full_range / 2
+        self.resolution = 16
+        self.dacsteps = (2**self.resolution)-1 # 65535
+        self.dac_quanta = self.full_range / self.dacsteps
+
         t0 = time.time()
         super().__init__(name, address, **kwargs)
         if use_locks:
@@ -234,15 +237,15 @@ class IVVI(VisaInstrument):
                 4 bits is the optimal spacing, so this gives 2048 (= 2^11)
                 points in a 2 V range
 
-            Insufficient resolution::
+            Insufficient self.half_range::
 
-                linspace(500, 502, 100) -> ValueError: Insufficient resolution
+                linspace(500, 502, 100) -> ValueError: Insufficient self.half_range
                     for 100 samples in the range 500 to 502. Maximum :16
 
                 This prevents oversampling. Use flexable = True to adapt the number
                 of points.
                                      
-            Resolution limited sweep using the flexable option::
+            self.half_range limited sweep using the flexable option::
 
                 linspace(500, 502, 100, True) -> [500.0991836423285, .. 14 more ..
                                                  , 501.9302662699321]
@@ -269,11 +272,11 @@ class IVVI(VisaInstrument):
         if use_reversed:
             start,end = end,start
         half = 0.5 if bip else 0.0 # half bit difference between bip and neg,pos
-        byte_start =  int(math.ceil(half + start/self.dac_quata))
-        byte_end = int(math.floor(half + end/self.dac_quata))
-        delta_bytes =  abs(byte_end - byte_start)-1
-        spacing =  max(int(math.floor(delta_bytes / (samples-1))),2)
-        l =  [(el+half)*self.dac_quata
+        byte_start =  int(math.ceil(half + start/self.dac_quanta))
+        byte_end = int(math.floor(half + end/self.dac_quanta))+1
+        delta_bytes =  abs(byte_end - byte_start)
+        spacing =  max(int(math.floor(delta_bytes / (samples-1))),1)
+        l =  [(el+half)*self.dac_quanta
               for el in range(byte_start, byte_end,spacing)]
         # Adjust the points until the length is correct
         if not flexible:
@@ -284,7 +287,7 @@ class IVVI(VisaInstrument):
                 if s > 0:
                     l = l[s:-s]
             if len(l) < samples:
-                msg = ( 'Insufficient resolution for '+ str(samples)
+                msg = ( 'Insufficient self.half_range for '+ str(samples)
                        + ' samples in the range '
                        + str(start)+' to ' + str(end) )
                 msg += '. Maximum :' + str(len(l))
@@ -313,7 +316,7 @@ class IVVI(VisaInstrument):
         Output:
             (dataH, dataL) (int, int) : The high and low value byte equivalent
         '''
-        bytevalue = int(round(mvoltage / self.full_range * 65535))
+        bytevalue = int(round(mvoltage / self.full_range * self.dacsteps))
         return bytevalue.to_bytes(length=2, byteorder='big')
 
     def _bytes_to_mvoltages(self, byte_mess):
@@ -326,7 +329,7 @@ class IVVI(VisaInstrument):
             # takes two bytes, converts it to a 16 bit int and then divides by
             # the range and adds the offset due to the polarity
             values[i] = ((byte_mess[2 + 2 * i] * 256 + byte_mess[3 + 2 * i]) /
-                         65535.0 * self.full_range) + self.pol_num[i]
+                         float(self.dacsteps) * self.full_range) + self.pol_num[i]
         return values
 
     # Communication with device
@@ -612,13 +615,13 @@ class IVVI(VisaInstrument):
         value_pol_corr = value - self.pol_num[dacidx]
         value_bytes = self._mvoltage_to_bytes(value_pol_corr)
         value_round = (value_bytes[0] * 256 + value_bytes[1]) / \
-            65535.0 * self.full_range + self.pol_num[dacidx]
+            self.dacsteps * self.full_range + self.pol_num[dacidx]
         return value_round
 
     def adjust_parameter_validator(self, param):
-        """Adjust the parameter validator range based on the dac resolution.
+        """Adjust the parameter validator range based on the dac self.half_range.
 
-        The dac's of the IVVI have a finite resolution. If the validator range
+        The dac's of the IVVI have a finite self.half_range. If the validator range
         min and max values are not values the dac's can actually have, then it
         can occur that a set command results in the dac's going to a value just
         outside the validator range. Adjusting the validators with this

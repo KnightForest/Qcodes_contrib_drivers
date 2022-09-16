@@ -229,9 +229,9 @@ class Cryomagnetics_4G(VisaInstrument):
 
     def heatercontrol(self, axis, status, heatersync=True):
         if self._get_drivemode(axis) == 'A':
-            margin=2e-3
+            margin=self.CURR_MARGIN
         else:
-            margin=1e-4
+            margin=self.MARGIN
 
         if heatersync:
             heaterlist = []
@@ -247,7 +247,7 @@ class Cryomagnetics_4G(VisaInstrument):
                 if self._get_heater(axis) == 'OFF': # If heater is off, start checks
                     psuval = self.get_psuout(axis)[0]
                     magval = self.get_magnetout(axis)[0]
-                    print(psuval,magval)
+                    print('PSU value: ',psuval,', Magnet value: ',magval)
                     if psuval != magval: # Check if PSU and coil match
                         print('Heater is off, matching PSU with magnets in lead..')
                         if magval > psuval: # If not, match PSU and coil
@@ -450,8 +450,9 @@ class Cryomagnetics_4G(VisaInstrument):
                 time.sleep(0.50)
 
     def shutdown(self, wait=True, fast=False):
-        self.heatercontrol(self._axes[0],'ON', heatersync=True)
         for ax in self._axes:
+            if self._heaterdict[ax] == True:
+                self.heatercontrol(ax,'ON', heatersync=True)
             print('Zeroing {} axis'.format(ax))
             self.zero(ax, wait=wait, fast=False)
         for ax in self._axes:
