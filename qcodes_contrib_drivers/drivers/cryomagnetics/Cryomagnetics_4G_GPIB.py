@@ -20,9 +20,10 @@ class Cryomagnetics_4G(VisaInstrument):
     def __init__(self, 
                  name: str, 
                  address: str, 
-                 terminator="\n", 
+                 terminator='\n', 
                  baudrate=9600, #Connect with same baudrate as set in the instrument 
                  serial=True, 
+                 usb=False,
                  write_confirmation=False, 
                  axes=None, # Array of axis names, one per channel (internal PSUs in unit). Examples: ['z'], ['x','y']
                  channels=None, # Array of channels with length axes (number of internal PSUs in unit). For single channel: [1], for two channels: [1,2]
@@ -53,6 +54,7 @@ class Cryomagnetics_4G(VisaInstrument):
         self._address = address
         self._heaterdict = dict(zip(self._axes, heaters))
         self._channeldict = dict(zip(self._axes, channels))
+        self._usb = usb
         #print(self._heaterdict,self._channeldict)
         
         self._field_units = ['kG','T']
@@ -119,18 +121,18 @@ class Cryomagnetics_4G(VisaInstrument):
         
     def get_idn(self):
         """ Return the Instrument Identifier Message """
-        idstr = self.ask('*IDN?')
+        idstr = self.ask_custom('*IDN?')
         idparts = [p.strip() for p in idstr.split(',', 4)][:]
         return dict(zip(('vendor', 'model', 'serial', 'firmware'), idparts))
 
     def reset(self):
-        self.write('*RST')
+        self.write_custom('*RST')
 
     def _select_channel(self, axis):
         #print(self._channeldict[axis])
         if self._channeldict[axis] not in [1,2]:
             raise ValueError('Unknown axis %s' % axis)
-        self.write('CHAN {:0}'.format(self._channeldict[axis]))
+        self.write_custom('CHAN {:0}'.format(self._channeldict[axis]))
 
     def _get_unit(self, axis):
        self._select_channel(axis)
@@ -144,7 +146,7 @@ class Cryomagnetics_4G(VisaInstrument):
         elif self._get_drivemode(axis) == 'A' and val in self._field_units:
             print('Error: cannot set display units to \'{}\'. Change to field drivemode'.format(val))
         else:
-            self.write('UNITS {}'.format(val))
+            self.write_custom('UNITS {}'.format(val))
 
     def _get_drivemode(self, axis):
         self._select_channel(axis)
@@ -156,14 +158,14 @@ class Cryomagnetics_4G(VisaInstrument):
        
     def _set_drivemode(self, axis, val):
         self._select_channel(axis)
-        self.write('UNITS {}'.format(val))
+        self.write_custom('UNITS {}'.format(val))
         time.sleep(0.1)
             
     def local(self):
-        self.write('LOCAL')
+        self.write_custom('LOCAL')
 
     def remote(self):
-        self.write('REMOTE')
+        self.write_custom('REMOTE')
 
     def ask_custom(self, cmd):
         """
@@ -171,12 +173,24 @@ class Cryomagnetics_4G(VisaInstrument):
         """
         while True:
             try:
-                res = self.ask(cmd).split(self.read_termination)[0]
+                if self._usb==True:
+                    self.ask(cmd)
+                    res=self.visa_handle.read().split(self.visa_handle.read_termination)[0]
+                else:
+                    res = self.ask(cmd).split(self.visa_handle.read_termination)[0]
                 break
             except Exception as e:
                 print('Communication error: ', e, ' Query repeated..')
                 pass
         return res
+
+
+    def write_custom(self, cmd):
+        if self._usb==True:
+            self.write(cmd)
+            self.visa_handle.read()
+        else:
+            self.write(cmd)
     
     def get_magnetout(self, axis):
         while True:
@@ -390,7 +404,7 @@ class Cryomagnetics_4G(VisaInstrument):
         if cmd not in ['UP SLOW', 'UP FAST', 'DOWN SLOW', 'DOWN FAST', 'PAUSE', 'ZERO SLOW', 'ZERO FAST']:
             logging.warning('Invalid sweep mode selected')
             return False
-        self.write('SWEEP %s' % cmd)
+        self.write_custom('SWEEP %s' % cmd)
       
     def _sweep_up(self, axis, fast=False):
         if not fast:
@@ -415,7 +429,7 @@ class Cryomagnetics_4G(VisaInstrument):
 
     def _set_lowlim(self, axis, val): 
         self._select_channel(axis)
-        self.write('LLIM %f' % val)
+        self.write_custom('LLIM %f' % val)
 
     def _get_uplim(self, axis):
         self._select_channel(axis)
@@ -426,7 +440,7 @@ class Cryomagnetics_4G(VisaInstrument):
 
     def _set_uplim(self, axis, val):
         self._select_channel(axis)
-        self.write('ULIM %f' % val)
+        self.write_custom('ULIM %f' % val)
 
     def _get_heater(self, axis):
         self._select_channel(axis)
@@ -441,7 +455,7 @@ class Cryomagnetics_4G(VisaInstrument):
             heaterwait = self.HEATERWAIT
         self._select_channel(axis)
         time.sleep(5)
-        self.write('PSHTR %s' % val)
+        self.write_custom('PSHTR %s' % val)
         time.sleep(heaterwait)
 
     def pause(self, axis):
@@ -480,8 +494,8 @@ class Cryomagnetics_4G(VisaInstrument):
 #
 #    def do_set_rate0(self, rate, axis):
 #        self._select_channel(axis)
-#        self._visa.write('RATE 0 %.03f\n' % rate)
+#        self._visa.write_custom('RATE 0 %.03f\n' % rate)
 #
 #    def do_set_rate1(self, rate, axis):
 #        self._select_channel(axis)
-#        self._visa.write('RATE 1 %.03f\n' % rate)
+#        self._visa.write_custom('RATE 1 %.03f\n' % rate)
