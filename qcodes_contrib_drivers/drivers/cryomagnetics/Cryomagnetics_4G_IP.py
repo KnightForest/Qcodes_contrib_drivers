@@ -36,7 +36,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
         super().__init__(name, address=address, port=port, terminator=terminator,
                          timeout=timeout, write_confirmation=write_confirmation, **kwargs)
         
-        self.read_termination=terminator
+        self.visa_handle.read_termination = terminator
 
         if len(heaters) != len(axes):
             raise ValueError('Heater must be specified for every axis')
@@ -164,7 +164,7 @@ class Cryomagnetics_4G_IP(IPInstrument):
         """
         while True:
             try:
-                res = self.ask(cmd).split(self.read_termination)[0]
+                res = self.ask(cmd).split(self.visa_handle.read_termination)[0]
                 break
             except Exception as e:
                 print('Communication error: ', e, ' Query repeated..')

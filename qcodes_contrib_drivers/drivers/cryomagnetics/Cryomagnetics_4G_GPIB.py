@@ -15,7 +15,15 @@ import re
 import math
 
 class Cryomagnetics_4G(VisaInstrument):
-
+    r"""
+    Cryomagnetics 4G driver
+    Uses GPIB or USB to communicate with the device.
+    
+    Version 0.1 (2022-12-03)
+    Joost Ridderbos - Researcher at ICE/QTM
+    University of Twente
+    j.ridderbos@utwente.nl
+    """
 
     def __init__(self, 
                  name: str, 
@@ -171,7 +179,7 @@ class Cryomagnetics_4G(VisaInstrument):
         """
         while True:
             try:
-                res = self.ask(cmd).split(self.read_termination)[0]
+                res = self.ask(cmd).split(self.visa_handle.read_termination)[0]
                 break
             except Exception as e:
                 print('Communication error: ', e, ' Query repeated..')
