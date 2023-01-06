@@ -238,15 +238,16 @@ class Triton(IPInstrument):
                 print('Temperature control above condense limit of ' + str(self.condense_tlim) + ' K not allowed.')
             #break
             
+        if self.pid_mode.get() == 'off' and val > 0.015:
+            self.pid_mode.set('on')
+            sleep(1)
+
         for i,hval in enumerate(self._heater_range_temp): #Select correct heater range
             if val >= self._heater_range_temp[i] and val < self._heater_range_temp[i+1]:
                 heaterval = self._heaterdict[hval]
                 self.pid_range.set(heaterval)
                 print('Heater set to ' + str(heaterval) + ' mA')
 
-        if self.pid_mode.get() == 'off' and val > 0.015:
-            self.pid_mode.set('on')
-            sleep(1)
         self.pid_setpoint.set(str(val))
         sleep(1)
         if wait==True:
