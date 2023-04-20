@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+from qcodes import IPInstrument
+from qcodes.utils.validators import Enum, Ints
+
+from time import sleep
+import sys
 
 class ICEoxfordVTI(IPInstrument):
     r"""
@@ -14,103 +19,76 @@ class ICEoxfordVTI(IPInstrument):
     def __init__(
             self,
             name: str,
-            address: Optional[str] = None,
-            port: Optional[int] = None,
+            address: None,
+            port: None,
             terminator: str = '\r\n',
-            tmpfile: Optional[str] = None,
-            timeout: float = 20,
+            timeout: float = 1,
             pid = None,
-            condense_tlim = 1.2,
-            tlim_safety = True,
-            **kwargs: Any):
+            **kwargs):
         super().__init__(name, address=address, port=port,
                          terminator=terminator, timeout=timeout, **kwargs)
+        self.add_parameter(name='status',
+                           label='Status',
+                           get_cmd=self.LEMON_status)
+        for i in [1, 2]:
+            self.add_parameter(f'nv{i}_mode',
+                               label=f'Needle valve {i} mode',
+                               get_cmd=f'NV{i} MODE?',
+                               get_parser=self.get_parser,
+                               #get_cmd=self.read_NV1mode,
+                               set_cmd=f'NV{i} MODE={{}}',
+                               val_mapping={'auto':  'AUTO', 'manual': 'MANUAL'})
+            self.add_parameter(f'nv{i}_PID',
+                               label=f'Needle valve {i} P',
+                               get_cmd=f'NV{i} PID?',
+                               get_parser=self.get_PID_parser,
+                               #get_cmd=self.read_NV1mode,
+                               set_cmd=f'NV{i} PID={{}}',
+                               #val_mapping={'auto':  'AUTO', 'manual': 'MANUAL'})
 
-
-class WrongInstrErr(Exception):
-    """
-    A connection was established to the instrument, but the instrument
-    is not an ICEoxford VTI controller. Please retry with the correct
-    address. Make sure that each device has an unique address.
-    """
-    pass
-
-class ICEoxfordVTI:
-    type = 'ICEoxford VTI'
-
-    def __init__(self, IPaddress, port=6340):
-        # Port should be a number, not a string
-        if not isinstance(port, int):
-            port = int(port)
-        # Prepare socket instance
-        self.s = socket.socket()
-        self.s.connect((IPaddress, port))
+        self.LEMON_connect()
+        self.connect_message()
         
-        # Check if LEMON is connected, otherwise connect
-        self.s.sendall(('LEMON CONNECTED?\r\n').encode())
-        resp = self.s.recv(1024).decode()
-        if resp == 'LEMON CONNECTED':
-            print('ICEoxford LEMON software connected.')
-        else:
-            print('ICEoxford LEMON software not connected. Connecting...')
-            self.s.sendall(('CONNECT LEMON\r\n').encode())
-            self.s.recv(1024).decode()
+    def get_parser(self, val):
+        return val.strip('\r\n').split('=')[1]
 
-    def close(self):
-        # We also disconnect the LEMON software here
-        self.s.sendall(('DISCONNECT LEMON\r\n').encode())
-        self.s.recv(1024).decode()
-        self.s.close()
+    def get_PID_parser(self, val):
+        return val.strip('\r\n').split('=')[1].split(',')
 
-    def query(self, val):
-        self.s.sendall((val + '\r\n').encode())
-        resp = self.s.recv(1024).decode()
-        return resp 
+    def ask_custom(self, val):
+        return self.ask(val).strip('\r\n')
+
     
-    def overview(self):
-        # Get all attributes from self that contain '_read'
-        attr_list = [attr for attr in dir(self) if 'read_' in attr]
-        # Loop over every item, print results
-        for attr in attr_list:
-            print(attr + ': ' + str(getattr(self, attr)()))
-        
     # LEMON commands ---------------------------------------------------------------------------   
     def LEMON_connect(self):
-        self.s.sendall(('CONNECT LEMON\r\n').encode())
-        self.s.recv(1024).decode()
+        self.ask_custom('CONNECT LEMON')
         
     def LEMON_disconnect(self):
-        self.s.sendall(('DISCONNECT LEMON\r\n').encode())
-        self.s.recv(1024).decode()
+        self.ask_custom('DISCONNECT LEMON')
 
     def LEMON_status(self):
-        self.s.sendall(('LEMON CONNECTED?\r\n').encode())
-        resp = self.s.recv(1024).decode().strip('\r\n') 
-        return resp
+        return self.ask_custom('LEMON CONNECTED?')
 
     # Needle valve commands --------------------------------------------------------------------
     # Needle valve mode, can be AUTO or MANUAL    
+
     def read_NV1mode(self):
-        self.s.sendall(('NV1 MODE?\r\n').encode())
-        resp = self.s.recv(1024).decode().split('=')[1].strip('\r\n')
-        return resp    
+        return self.ask_custom('NV1 MODE?').split('=')[1]  
   
     def read_NV2mode(self):
-        self.s.sendall(('NV2 MODE?\r\n').encode())
-        resp = self.s.recv(1024).decode().split('=')[1].strip('\r\n')
-        return resp     
+        return self.ask_custom('NV2 MODE?').split('=')[1]  
     
     # Needle valve manual output set value as percentage
     def read_NV1manout(self):
-        self.s.sendall(('NV1 MAN OUT?\r\n').encode())
-        resp = self.s.recv(1024).decode().split('=')[1].strip('\r\n')
-        return float(resp)
+        return self.ask_custom('NV1 MAN OUT?').split('=')[1] 
     
     def read_NV2manout(self):
-        self.s.sendall(('NV2 MAN OUT?\r\n').encode())
-        resp = self.s.recv(1024).decode().split('=')[1].strip('\r\n')
-        return float(resp)    
-    
+        return self.ask_custom('NV2 MAN OUT?').split('=')[1]    
+
+
+#--------------------------------
+#--------------------------------
+#--------------------------------    
     # Needle valve setpoint in mbar
     def read_NV1setp(self):
         self.s.sendall(('NV1 SETPOINT?\r\n').encode())

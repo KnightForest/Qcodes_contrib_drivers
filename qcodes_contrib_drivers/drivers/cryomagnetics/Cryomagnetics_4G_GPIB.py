@@ -19,8 +19,8 @@ class Cryomagnetics_4G(VisaInstrument):
     Cryomagnetics 4G driver
     Uses GPIB or USB to communicate with the device.
     
-    Version 0.1 (2022-12-03)
-    Joost Ridderbos - Researcher at ICE/QTM
+    Version 0.9 (2022-11-10)
+    Joost Ridderbos - Researcher at ICE/QTM & NE
     University of Twente
     j.ridderbos@utwente.nl
     """
@@ -181,15 +181,11 @@ class Cryomagnetics_4G(VisaInstrument):
         """
         while True:
             try:
-<<<<<<< HEAD
-                res = self.ask(cmd).split(self.visa_handle.read_termination)[0]
-=======
                 if self._usb==True:
                     self.ask(cmd)
                     res=self.visa_handle.read().split(self.visa_handle.read_termination)[0]
                 else:
                     res = self.ask(cmd).split(self.visa_handle.read_termination)[0]
->>>>>>> 16658f0e08e1fd54039cfe1bcc13a9f85c1f2ed9
                 break
             except Exception as e:
                 print('Communication error: ', e, ' Query repeated..')

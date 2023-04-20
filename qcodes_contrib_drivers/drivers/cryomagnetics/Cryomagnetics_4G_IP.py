@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-
-
-"""
-
 from qcodes import VisaInstrument
 from qcodes import IPInstrument
 from qcodes.utils.validators import Enum
@@ -17,7 +11,15 @@ import re
 import math
 
 class Cryomagnetics_4G_IP(IPInstrument):
-
+    r"""
+    Cryomagnetics 4G driver
+    Uses TCP/IP socket to communicate with the device.
+    
+    Version 0.9 (2022-03-01)
+    Joost Ridderbos - Researcher at ICE/QTM & NE
+    University of Twente
+    j.ridderbos@utwente.nl
+    """
     def __init__(self,
                  name: str,
                  address: str,
