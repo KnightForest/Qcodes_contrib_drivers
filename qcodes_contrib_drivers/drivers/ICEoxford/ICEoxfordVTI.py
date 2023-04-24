@@ -14,6 +14,12 @@ class ICEoxfordVTI(IPInstrument):
     Joost Ridderbos - Researcher at ICE/QTM
     University of Twente
     j.ridderbos@utwente.nl
+    Todo:
+    Gas Box
+    Dual Cool
+    Magnet
+    Sensors
+
     """
 
     def __init__(
@@ -145,52 +151,53 @@ class ICEoxfordVTI(IPInstrument):
                                             'off': 'OFF',
                                             })
         # Heat switch parameters
-        self.add_parameter(f'heat_switch_mode',
-                           label=f'heater switch mode',
-                           get_cmd=f'HEAT SW MODE?',
-                           get_parser=self.get_parser,
-                           set_cmd=partial(self.set_mode,'HEAT SW',''),
-                           val_mapping={'auto':  'AUTO', 'manual': 'MANUAL'})
-        self.add_parameter(f'heat_switch_channel',
-                           label=f'heat switch channel',
-                           get_cmd=f'HEAT SW CHAN?',
-                           get_parser=self.get_parser,
-                           set_cmd=f'HEAT SW CHAN={{}}',
-                           val_mapping={'none':  'NONE', 
-                                        'A': 'A',
-                                        'B': 'B',
-                                        'C': 'C',
-                                        'D1': 'D1',
-                                        'D2': 'D2',
-                                        'D3': 'D3',
-                                        'D4': 'D4',
-                                        'D5': 'D5',
-                                        }) 
-        self.add_parameter(f'heat_switch_setpoint',
-                           label=f'heat switch setpoint',
-                           get_cmd=f'HEAT SW SETPOINT?',
-                           get_parser=self.get_parser,
-                           set_cmd=f'HEAT SW SETPOINT={{}}',
-                           unit='K',
-                           vals=Numbers())
-        self.add_parameter(f'heat_switch_error_band',
-                           label=f'heat switch error band',
-                           get_cmd=f'HEAT SW ERROR BAND?',
-                           get_parser=self.get_parser,
-                           set_cmd=f'HEAT SW ERROR BAND={{}}',
-                           unit='K',
-                           vals=Numbers())
-        self.add_parameter(f'heat_switch_relay',
-                           label=f'heat switch relay',
-                           get_cmd=f'HEAT SW RELAY?',
-                           get_parser=self.get_parser,
-                           set_cmd=f'HEAT SW RELAY={{}}',
-                           val_mapping={'on': 'ON',
-                                        'off': 'OFF',
-                                        })
-        self.add_parameter(f'heat_switch_set',
-                           label=f'heat switch set value command',
-                           set_cmd=f'HEAT SW SET VALUES')
+        for i in [1,2]:
+            self.add_parameter(f'heat_switch{i}_mode',
+                               label=f'heat switch {i} mode',
+                               get_cmd=f'HEAT SW{i} MODE?',
+                               get_parser=self.get_parser,
+                               set_cmd=partial(self.set_mode,'HEAT SW',i),
+                               val_mapping={'auto':  'AUTO', 'manual': 'MANUAL'})
+            self.add_parameter(f'heat_switch{i}_channel',
+                               label=f'heat switch {i} channel',
+                               get_cmd=f'HEAT SW{i} CHAN?',
+                               get_parser=self.get_parser,
+                               set_cmd=f'HEAT SW{i} CHAN={{}}',
+                               val_mapping={'none':  'NONE', 
+                                            'A': 'A',
+                                            'B': 'B',
+                                            'C': 'C',
+                                            'D1': 'D1',
+                                            'D2': 'D2',
+                                            'D3': 'D3',
+                                            'D4': 'D4',
+                                            'D5': 'D5',
+                                            }) 
+            self.add_parameter(f'heat_switch{i}_setpoint',
+                               label=f'heat switch {i} setpoint',
+                               get_cmd=f'HEAT SW{i} SETPOINT?',
+                               get_parser=self.get_parser,
+                               set_cmd=f'HEAT SW{i} SETPOINT={{}}',
+                               unit='K',
+                               vals=Numbers())
+            self.add_parameter(f'heat_switch{i}_error_band',
+                               label=f'heat switch {i} error band',
+                               get_cmd=f'HEAT SW{i} ERROR BAND?',
+                               get_parser=self.get_parser,
+                               set_cmd=f'HEAT SW{i} ERROR BAND={{}}',
+                               unit='K',
+                               vals=Numbers())
+            self.add_parameter(f'heat_switch{i}_relay',
+                               label=f'heat switch {i} relay',
+                               get_cmd=f'HEAT SW{i} RELAY?',
+                               get_parser=self.get_parser,
+                               set_cmd=f'HEAT SW{i} RELAY={{}}',
+                               val_mapping={'on': 'ON',
+                                            'off': 'OFF',
+                                            })
+            self.add_parameter(f'heat_switch{i}_set',
+                               label=f'heat switch {i} set value command',
+                               set_cmd=f'HEAT SW{i} SET VALUES')
         # Data channels
         for i in ['A', 'B', 'C', 'D1', 'D2', 'D3', 'D4', 'D5']:   
             self.add_parameter(f'T_{i}',
@@ -247,7 +254,7 @@ class ICEoxfordVTI(IPInstrument):
 
     def get_parser(self, val):
         ans = val.strip('\r\n').split('=')[1]
-        return 
+        return ans
 
     def get_PID_parser(self, val):
         lst = val.strip('\r\n').split('=')[1].split(',')
