@@ -154,7 +154,7 @@ class ICEoxfordVTI(IPInstrument):
             self.add_parameter(f'heater{i}_setpoint_ramp',
                                label=f'heater{i} setpoint ramp',
                                get_cmd=f'HEATER{i} SETPOINT RAMP?',
-                               get_parser=self.get_parser_float,
+                               get_parser=self.get_parser,
                                set_cmd=f'HEATER{i} SETPOINT RAMP={{}}',
                                val_mapping={'on': 'ON',
                                             'off': 'OFF',
@@ -334,6 +334,7 @@ class ICEoxfordVTI(IPInstrument):
             self.ask(f'{dev}{n} SET VALUES')
             time.sleep(0.1)
             self.ask(f'{dev}{n} SET VALUES')
+        return 'OK2'
 
     def get_parser(self, val):
         ans = val.strip('\r\n').split('=')[1]
@@ -403,7 +404,7 @@ class ICEoxfordVTI(IPInstrument):
             self.heater2_setpoint.set(tset)
             self.heater2_PID.set(setlist[0])
             self.heater2_range.set(setlist[1])
-            self.heater2_set.set(0)
+            self.heater2_set.set(True)
             self.nv1_mode('auto')
             self.nv1_setpoint.set(setlist[2])
             self.nv1_PID.set(setlist[3])
