@@ -11,6 +11,7 @@ from qcodes.utils.validators import Enum, Ints
 from time import sleep
 import sys
 
+import numpy as np
 
 class Triton(IPInstrument):
     r"""
@@ -43,9 +44,19 @@ class Triton(IPInstrument):
         self._heater_range_auto = False
         self._heater_range_temp = [0.0, 0.015, 0.025, 0.07,  0.2,  1.5,  40.,  300]
         self._heater_range_curr = [0.0, 0.316, 1,     3.16,  10.,  31.6, 100., 100.]
+        self._heater_range_powr = [0.0, 10.8743, 108.9, 1087.43 ,10890, 108743] # uW
         self._heaterdict = dict(zip(self._heater_range_temp,self._heater_range_curr))
         #self._control_channel = 5
 
+        for i in [1,2]:
+            self.add_parameter(name=f'heater{i}_power',
+                               label=f'Heater {i} output power',
+                               get_cmd=partial(self._get_heater_power, f'H{i}'),
+                               unit = r'$\mu$W')
+            self.add_parameter(name=f'heater{i}_percent',
+                               label=f'Heater {i} output percentage',
+                               get_cmd=partial(self._get_heater_percentage, f'H{i}'),
+                               unit = r'$\mu$W')
         self.add_parameter(name='turbo_status',
                            label='turbo_status',
                            get_cmd=partial(self._get_turbo_status),
@@ -197,7 +208,7 @@ class Triton(IPInstrument):
         self.connect_message()
 
     def _get_autotempcontrol(self):
-        return eval("self.%s.get()" % (self ._get_named_control_channel()))
+        return eval("self.%s.get()" % (self._get_named_control_channel()))
 
     def _checkcirculating(self,tlim):
         if self.turbo_status.get() == 'on' and (self.MC.get()) < tlim and (self.P2.get()) < 2.5 and (self.P1.get()) < 5e-2:
@@ -212,19 +223,18 @@ class Triton(IPInstrument):
         
         # heater routine below tlim (while circulating)
         if val <= self.condense_tlim and self._checkcirculating(self.condense_tlim)==True:
-            if self._get_named_control_channel != 'MC':
+            if self._get_named_control_channel != 'MC':        
                 self._set_named_control_channel('MC')
+                print('Set control channel to \'MC\'')
             if self.MC_status.get() == 'off':
                 self.MC_status.set('on')
+                print('Turned on \'MC\' channel')
             if self.COOL_status.get() == 'on':
                 self.COOL_status.set('off')
+                print('Turned off \'COOL\' channel')
             #self.pid_mode.set('off')
-        else:
-            print('Temperature control below ' + str(self.condense_tlim) + ' K not possible, recondense first.')
-            #break
-        
         #heater routine above tlim (turbo off and mixture collected)
-        if val > self.condense_tlim :
+        elif val > self.condense_tlim:
             if self.tlim_safety == False:
                 print('Warning: you\'ll need to recondense for temperature control below ' + str(self.condense_tlim) + ' K.')
                 if self.turbo_status.get() == 'on':
@@ -234,14 +244,24 @@ class Triton(IPInstrument):
                     sleep(10)
                     self.V9.set('closed')
                     self.V4.set('open')
+
             else:
                 print('Temperature control above condense limit of ' + str(self.condense_tlim) + ' K not allowed.')
-            #break
+                return
+        else:
+            print('Temperature control below ' + str(self.condense_tlim) + ' K not possible, recondense first.')
+            self.pid_range.set(0.0)
+            sleep(1)
+            self.pid_mode.set('off')
+            sleep(1)
+            return
             
-        if self.pid_mode.get() == 'off' and val > 0.015:
+        if self.pid_mode.get() == 'off' and val > 0.02: # Temperature control below 20 mK is not possible
             self.pid_mode.set('on')
             sleep(1)
-
+        elif self.pid_mode.get() == 'on' and val <= 0.02: # Temperature control below 20 mK is not possible
+            self.pid_mode.set('off')
+            sleep(1)
         for i,hval in enumerate(self._heater_range_temp): #Select correct heater range
             if val >= self._heater_range_temp[i] and val < self._heater_range_temp[i+1]:
                 heaterval = self._heaterdict[hval]
@@ -250,6 +270,12 @@ class Triton(IPInstrument):
 
         self.pid_setpoint.set(str(val))
         sleep(1)
+        while self.pid_mode.get() == 'off': # Make absolutely sure PID mode is turned on! This bugs out sometimes
+            self.pid_mode.set('on')
+            sleep(1)
+            self.pid_mode.set('on')
+            sleep(1)
+
         if wait==True:
             actualtemp = self._istempreached(val,tolerance)
             return actualtemp
@@ -288,6 +314,10 @@ class Triton(IPInstrument):
             if actualtemp > tlow and actualtemp < thigh:
                 stability_samples = stability_samples + 1
                 print('T = '+ str(actualtemp) + ', waiting for temp to stabilise. Samples:' + str(stability_samples))
+                if self._get_heater_percentage('H1')<10:
+                    if heatind-1 >= 0: 
+                        self.pid_range.set(self._heater_range_curr[heatind-1])
+                        print('heater power decreased to: ' + str(self._heater_range_curr[heatind-1]))  
             elif actualtemp < tlow:
                 stability_samples = 0
                 tlow_samples = tlow_samples + 1
@@ -298,7 +328,7 @@ class Triton(IPInstrument):
                 stability_samples = 0
                 tlow_samples = 0
                 print('Temp higher than setpoint: '+ str(actualtemp) +', waiting...')
-            if tlow_samples == tlow_samples_limit:
+            if tlow_samples >= tlow_samples_limit and self._get_heater_percentage('H1')>95:
                 tlow_samples = 0
                 heatind = self._heater_range_curr.index(self.pid_range.get())
                 if heatind+1 < len(self._heater_range_curr):
@@ -398,6 +428,22 @@ class Triton(IPInstrument):
         self._control_channel = channel
         self.write('SET:DEV:T{}:TEMP:LOOP:HTR:H1'.format(
             channel))
+
+    def _get_heater_power(
+            self,
+            param: str):
+        htr = param
+        cmd = f'READ:DEV:{htr}:HTR:SIG:POWR'
+        #ans = self.ask(cmd)
+        return float(self.ask(cmd).split(':')[-1].split('uW')[0])
+
+    def _get_heater_percentage(
+            self,
+            param: str):
+        htr = param
+        outputpower = np.sqrt(self._get_heater_power(param)) #sqrt because Triton measures in % of current
+        maxpower = np.sqrt(self._heater_range_powr[self._heater_range_curr.index(self.pid_range.get())])
+        return outputpower/maxpower*100
 
     def _get_control_param(
             self,

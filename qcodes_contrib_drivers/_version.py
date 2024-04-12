@@ -9,4 +9,4 @@ def _get_version() -> str:
     return versioningit.get_version(project_dir=path.parent)
 
 
-__version__ = _get_version()
+__version__ = '1'#_get_version()
