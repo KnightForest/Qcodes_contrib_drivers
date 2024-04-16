@@ -33,7 +33,7 @@ class Triton(IPInstrument):
             port: Optional[int] = None,
             terminator: str = '\r\n',
             tmpfile: Optional[str] = None,
-            timeout: float = 20,
+            timeout: float = 5,
             pid = None,
             condense_tlim = 1.2,
             tlim_safety = True,
@@ -42,9 +42,9 @@ class Triton(IPInstrument):
                          terminator=terminator, timeout=timeout, **kwargs)
 
         self._heater_range_auto = False
-        self._heater_range_temp = [0.0, 0.015, 0.025, 0.07,  0.2,  1.5,  40.,  300]
-        self._heater_range_curr = [0.0, 0.316, 1,     3.16,  10.,  31.6, 100., 100.]
-        self._heater_range_powr = [0.0, 10.8743, 108.9, 1087.43 ,10890, 108743] # uW
+        self._heater_range_temp = [0.0,    0.015,  0.02,    0.05,   0.1,      0.2,   0.5,    1.5,      40.,     300]
+        self._heater_range_curr = [0.0,   0.0316,   0.1,   0.316,     1,     3.16,   10.,   31.6,     100.,    100.]
+        self._heater_range_powr = [0.0, 0.108743, 1.089, 10.8743, 108.9, 1087.43 , 10890, 108743 , 1089000, 1089000] # uW
         self._heaterdict = dict(zip(self._heater_range_temp,self._heater_range_curr))
         #self._control_channel = 5
 
@@ -208,7 +208,10 @@ class Triton(IPInstrument):
         self.connect_message()
 
     def _get_autotempcontrol(self):
-        return eval("self.%s.get()" % (self._get_named_control_channel()))
+        if self._get_named_control_channel() == None:
+            return None
+        else:
+            return eval("self.%s.get()" % (self._get_named_control_channel()))
 
     def _checkcirculating(self,tlim):
         if self.turbo_status.get() == 'on' and (self.MC.get()) < tlim and (self.P2.get()) < 2.5 and (self.P1.get()) < 5e-2:
@@ -223,7 +226,7 @@ class Triton(IPInstrument):
         
         # heater routine below tlim (while circulating)
         if val <= self.condense_tlim and self._checkcirculating(self.condense_tlim)==True:
-            if self._get_named_control_channel != 'MC':        
+            if self._get_named_control_channel() != 'MC':        
                 self._set_named_control_channel('MC')
                 print('Set control channel to \'MC\'')
             if self.MC_status.get() == 'off':
@@ -311,13 +314,14 @@ class Triton(IPInstrument):
                         sys.exit('Temperature control aborted, P2 at ' + "{:.4f}".format(self.P2.get()) + ' Bar, P3 at ' + "{:.4f}".format(self.P3.get()*1e3) + ' mBar.')
                         # throw error and abort
                 sleep(1)
+            heatind = self._heater_range_curr.index(self.pid_range.get())
+            if self._get_heater_percentage('H1')<5:
+                if heatind-1 >= 1: 
+                    self.pid_range.set(self._heater_range_curr[heatind-1])
+                    print('Heater power decreased to: ' + str(self._heater_range_curr[heatind-1]))  
             if actualtemp > tlow and actualtemp < thigh:
                 stability_samples = stability_samples + 1
                 print('T = '+ str(actualtemp) + ', waiting for temp to stabilise. Samples:' + str(stability_samples))
-                if self._get_heater_percentage('H1')<10:
-                    if heatind-1 >= 0: 
-                        self.pid_range.set(self._heater_range_curr[heatind-1])
-                        print('heater power decreased to: ' + str(self._heater_range_curr[heatind-1]))  
             elif actualtemp < tlow:
                 stability_samples = 0
                 tlow_samples = tlow_samples + 1
@@ -333,7 +337,7 @@ class Triton(IPInstrument):
                 heatind = self._heater_range_curr.index(self.pid_range.get())
                 if heatind+1 < len(self._heater_range_curr):
                     self.pid_range.set(self._heater_range_curr[heatind+1])
-                    print('heater power increased to: ' + str(self._heater_range_curr[heatind+1]))
+                    print('Heater power increased to: ' + str(self._heater_range_curr[heatind+1]))
                 #timeout = 0
         print('Temp reached & stable')
         return(actualtemp)
@@ -534,9 +538,12 @@ class Triton(IPInstrument):
     def _get_named_control_channel(self):
         chandict = self.chan_alias
         t = 'T'+ str(self._get_control_channel())
-        for name, age in chandict.items():
-            if age == t:
+        for name, tchan in chandict.items():
+            if tchan == t:
                 return name
+        print('No named channel assigned to current control channel.')
+        return None
+                
 
     def _set_named_control_channel(self, channame):
         self._set_control_channel(int(self.chan_alias[channame].split('T')[-1]))

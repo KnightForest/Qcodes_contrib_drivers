@@ -1,14 +1,15 @@
 import logging
 import time
-from distutils.version import LooseVersion
 from functools import partial
-from typing import Any, Callable, Dict, List, Optional, Union, cast
+from typing import Any, Callable, Optional, Union, cast
 
 import numpy as np
+import numpy.typing as npt
+from packaging import version
 
 from qcodes.instrument.channel import InstrumentChannel
 from qcodes.instrument.visa import VisaInstrument
-from qcodes.math_utils.field_vector import FieldVector
+from qcodes.math_utils import FieldVector
 
 log = logging.getLogger(__name__)
 visalog = logging.getLogger('qcodes.instrument.visa')
@@ -51,9 +52,9 @@ def _signal_parser(our_scaling: float, response: str) -> float:
     return float(digits)*their_scaling*our_scaling
 
 
-class MercuryWorkerPS(InstrumentChannel):
+class OxfordMercuryWorkerPS(InstrumentChannel):
     """
-    Class to hold a worker power supply for the MercuryiPS
+    Class to hold a worker power supply for the Oxford MercuryiPS
     """
 
     def __init__(self, parent: VisaInstrument, name: str, UID: str) -> None:
@@ -73,7 +74,7 @@ class MercuryWorkerPS(InstrumentChannel):
 
         # The firmware update from 2.5 -> 2.6 changed the command
         # syntax slightly
-        if LooseVersion(self.root_instrument.firmware) >= LooseVersion('2.6'):
+        if version.parse(self.root_instrument.firmware) >= version.parse("2.6"):
             self.psu_string = "SPSU"
         else:
             self.psu_string = "PSU"
@@ -206,7 +207,13 @@ class MercuryWorkerPS(InstrumentChannel):
         #  the intended value
 
 
-class MercuryiPS(VisaInstrument):
+MercuryWorkerPS = OxfordMercuryWorkerPS
+"""
+Alias for backwards compatibility
+"""
+
+
+class OxfordMercuryiPS(VisaInstrument):
     """
     Driver class for the QCoDeS Oxford Instruments MercuryiPS magnet power
     supply
@@ -235,15 +242,17 @@ class MercuryiPS(VisaInstrument):
                              'function from (x, y, z) -> Bool. Received '
                              f'{type(field_limits)} instead.')
 
-        if visalib:
-            visabackend = visalib.split('@')[1]
-        else:
-            visabackend = 'NI'
-
+        pyvisa_sim_file = kwargs.get("pyvisa_sim_file", None)
         # ensure that a socket is used unless we are in simulation mode
-        #if not address.endswith('SOCKET') and visabackend != 'sim':
-        #    raise ValueError('Incorrect VISA resource name. Must be of type '
-        #                     'TCPIP0::XXX.XXX.XXX.XXX::7020::SOCKET.')
+        # if (
+        #     not address.endswith("SOCKET")
+        #     and not address.endswith("@sim")
+        #     and not pyvisa_sim_file
+        # ):
+        #     raise ValueError(
+        #         "Incorrect VISA resource name. Must be of type "
+        #         "TCPIP0::XXX.XXX.XXX.XXX::7020::SOCKET."
+        #     )
 
         super().__init__(name, address, terminator='\n', visalib=visalib,
                          **kwargs)
@@ -256,7 +265,7 @@ class MercuryiPS(VisaInstrument):
         # TODO: Query instrument to ensure which PSUs are actually present
         for grp in ['GRPX', 'GRPY', 'GRPZ']:
             psu_name = grp
-            psu = MercuryWorkerPS(self, psu_name, grp)
+            psu = OxfordMercuryWorkerPS(self, psu_name, grp)
             self.add_submodule(psu_name, psu)
 
         self._field_limits = (field_limits if field_limits else
@@ -342,8 +351,7 @@ class MercuryiPS(VisaInstrument):
         self.GRPY.field_ramp_rate(rate.y)
         self.GRPZ.field_ramp_rate(rate.z)
 
-    def _get_measured(self, coordinates: List[str]) -> Union[float,
-                                                             List[float]]:
+    def _get_measured(self, coordinates: list[str]) -> Union[float, list[float]]:
         """
         Get the measured value of a coordinate. Measures all three fields
         and computes whatever coordinate we asked for.
@@ -384,7 +392,7 @@ class MercuryiPS(VisaInstrument):
         # actually assign the target on the workers
         cartesian_targ = self._target_vector.get_components('x', 'y', 'z')
         for targ, worker in zip(cartesian_targ, self.submodules.values()):
-            if not isinstance(worker, MercuryWorkerPS):
+            if not isinstance(worker, OxfordMercuryWorkerPS):
                 raise RuntimeError(f"Expected a MercuryWorkerPS but got "
                                    f"{type(worker)}")
             worker.field_target(targ)
@@ -393,7 +401,7 @@ class MercuryiPS(VisaInstrument):
         for coord in 'xyz':
             self._set_target(coord, field[coord])
 
-    def _idn_getter(self) -> Dict[str, str]:
+    def _idn_getter(self) -> dict[str, str]:
         """
         Parse the raw non-SCPI compliant IDN string into an IDN dict
 
@@ -415,7 +423,7 @@ class MercuryiPS(VisaInstrument):
         out of your safe region. Use with care.
         """
         for worker in self.submodules.values():
-            if not isinstance(worker, MercuryWorkerPS):
+            if not isinstance(worker, OxfordMercuryWorkerPS):
                 raise RuntimeError(f"Expected a MercuryWorkerPS but got "
                                    f"{type(worker)}")
             worker.ramp_to_target()
@@ -429,7 +437,7 @@ class MercuryiPS(VisaInstrument):
         self._ramp_simultaneously()
 
         for worker in self.submodules.values():
-            if not isinstance(worker, MercuryWorkerPS):
+            if not isinstance(worker, OxfordMercuryWorkerPS):
                 raise RuntimeError(f"Expected a MercuryWorkerPS but got "
                                    f"{type(worker)}")
             # wait for the ramp to finish, we don't care about the order
@@ -443,9 +451,13 @@ class MercuryiPS(VisaInstrument):
         Ramp all three fields to their target using the 'first-down-then-up'
         sequential ramping procedure. This function is BLOCKING.
         """
-        meas_vals = self._get_measured(['x', 'y', 'z'])
-        targ_vals = self._target_vector.get_components('x', 'y', 'z')
-        order = np.argsort(np.abs(np.array(targ_vals) - np.array(meas_vals)))
+        meas_vals: npt.NDArray[np.floating] = np.array(
+            self._get_measured(["x", "y", "z"])
+        )
+        targ_vals: npt.NDArray[np.floating] = np.array(
+            self._target_vector.get_components("x", "y", "z")
+        )
+        order = np.argsort(np.abs(targ_vals - meas_vals))
 
         for worker in np.array(list(self.submodules.values()))[order]:
             worker.ramp_to_target()
@@ -517,10 +529,10 @@ class MercuryiPS(VisaInstrument):
 
         meas_vals = self._get_measured(['x', 'y', 'z'])
         # we asked for three coordinates, so we know that we got a list
-        meas_vals = cast(List[float], meas_vals)
+        meas_vals = cast(list[float], meas_vals)
 
         for cur, worker in zip(meas_vals, self.submodules.values()):
-            if not isinstance(worker, MercuryWorkerPS):
+            if not isinstance(worker, OxfordMercuryWorkerPS):
                 raise RuntimeError(f"Expected a MercuryWorkerPS but got "
                                    f"{type(worker)}")
             if worker.field_target() != cur:
@@ -568,3 +580,7 @@ class MercuryiPS(VisaInstrument):
             base_resp = resp.replace(f'STAT:{base_cmd}', '')
 
         return base_resp
+
+
+MercuryiPS = OxfordMercuryiPS
+"""Alias for backwards compatibility"""
