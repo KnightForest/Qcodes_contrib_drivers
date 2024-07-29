@@ -410,7 +410,7 @@ class ICEoxfordVTI(IPInstrument):
             self.nv1_PID.set(setlist[3])
             self.nv1_error_band.set(0)
             self.nv1_set.set(True)
-            error = tset*0.01
+            error = tset*self.temp_errormargin
             #print(tval)
             #print(error)
             #print(str(tset-error))
