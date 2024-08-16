@@ -14,6 +14,12 @@ from qcodes.math_utils import FieldVector
 log = logging.getLogger(__name__)
 visalog = logging.getLogger('qcodes.instrument.visa')
 
+def _command_preparser(bare_comm: str) -> str:
+    """
+    Pre-parse command to send to instrument (for switch heater parameter)
+    """
+
+    return ':'+bare_comm
 
 def _response_preparser(bare_resp: str) -> str:
     """
@@ -154,6 +160,12 @@ class OxfordMercuryWorkerPS(InstrumentChannel):
                                         'TO SET': 'RTOS',
                                         'CLAMP': 'CLMP',
                                         'TO ZERO': 'RTOZ'})
+        self.add_parameter('switch_heater',
+                            label='switch heater',
+                            get_cmd=partial(self._param_getter,'SIG:SWHT'),
+                            get_parser=_response_preparser,
+                            set_cmd=partial(self._param_setter,'SIG:SWHT')
+                            )
 
     def ramp_to_target(self) -> None:
         """
