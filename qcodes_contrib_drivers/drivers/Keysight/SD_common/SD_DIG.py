@@ -1,7 +1,8 @@
 from qcodes.utils.validators import Numbers, Enum, Ints
 from functools import partial
-
+import logging
 from .SD_Module import *
+#from ..Keysight_fpga_utils import *
 
 
 class SD_DIG(SD_Module):
@@ -31,7 +32,6 @@ class SD_DIG(SD_Module):
         self.n_triggers = triggers
 
         self.SD_AIN = self.SD_module
-
         #
         # Create a set of internal variables to aid set/get cmds in params
         #
