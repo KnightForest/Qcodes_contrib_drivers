@@ -2,12 +2,14 @@ import time
 import logging
 import numpy as np
 import pyvisa  # used for the parity constant
+import pyvisa.constants
 import traceback
 import threading
 import math
 
-from qcodes import VisaInstrument, validators as vals
-from qcodes.utils.validators import Bool, Numbers
+from qcodes import validators as vals
+from qcodes.validators import Bool, Numbers
+from qcodes.instrument import VisaInstrument
 
 
 class IVVI(VisaInstrument):
@@ -26,6 +28,11 @@ class IVVI(VisaInstrument):
     http://qtwork.tudelft.nl/~schouten/ivvi/doc-d5/rs232linkformat.txt
     A copy of this file can be found at the bottom of this file.
     '''
+
+    full_range = 4000.0
+    half_range = full_range / 2
+    resolution = 16
+    dac_quata = full_range / 2**resolution
 
     def __init__(self, name, address, reset=False, numdacs=16, dac_step=10,
                  dac_delay=.1, safe_version=True,
@@ -178,7 +185,7 @@ class IVVI(VisaInstrument):
         self.connect_message()
 
     def get_idn(self):
-        """
+        r"""
         Overwrites the get_idn function using constants as the hardware
         does not have a proper \*IDN function.
         """
@@ -201,7 +208,7 @@ class IVVI(VisaInstrument):
 
     def set_dacs_zero(self):
         for i in range(self._numdacs):
-            self.set('dac{}'.format(i + 1), 0)
+            self.parameters['dac{}'.format(i + 1)](0)
 
     def linspace(self, start: float, end: float, samples: int, polarity: str):
         """
@@ -278,97 +285,6 @@ class IVVI(VisaInstrument):
         # Computes the desired voltage from the dac values
         resultvolt = (resultlims-dacoffset)*self.dac_quanta
         return resultvolt        
-
-    def linspace_old(self, start: float, end: float, samples: int, flexible: bool = False, bip: bool = True):
-        """
-        Creates array of voltages, with correct alignment to the DAC
-        quantisation, in a similar manner to numpy.linspace.
-        This guarantees an even spacing and no double sampling inside
-        the requested range.
-        Args:
-            start: the start of the voltage range, in millivolts
-            end: the end of the voltage range, in millivolts
-            samples: number of sample voltages
-            flexible: occasionally get a different number of samples if
-                they can still fit inside the range.
-            bip: if the dac set to bi-polar (-2V to +2V) or
-                not (-4 to -0, or 0 to +4),
-        Returns:
-            list of voltages in millivolts suitable for the ivvi DAC.
-            Voltages are inside [start:end]
-            Voltages are evenly spaced
-            Voltages align with the DAC quantisation.
-        Examples:
-            normal usage::
-                linspace(-100,100,8) -> [-99.88555733577478, .. 6 more ..
-                                        , 99.64141298542764]
-            
-                linspace(-1000, 1000, 2000) ->
-                    [-976.4858472571908, .. 1998 more .., 975.6923781185626 ]
-            A flexable number of points::
-                linspace(-1000, 1000, 2000, True) ->
-                    [-999.9237048905165, .. 2046 more .., 999.1302357518883]
-                4 bits is the optimal spacing, so this gives 2048 (= 2^11)
-                points in a 2 V range
-            Insufficient resolution::
-                linspace(500, 502, 100) -> ValueError: Insufficient resolution
-                    for 100 samples in the range 500 to 502. Maximum :16
-                This prevents oversampling. Use flexable = True to adapt the number
-                of points.
-                                     
-            Resolution limited sweep using the flexable option::
-                linspace(500, 502, 100, True) -> [500.0991836423285, .. 14 more ..
-                                                 , 501.9302662699321]
-            
-            A too narrow range::
-                linspace(0, 0.01, 100, True) # -> ValueError: No DAC values exist
-                                                  in the range 0 : 0.01
-                Even using the flexable option can not help if there are no
-                valid values in the requested range.
-        """
-
-        if not isinstance(samples, (int)):
-            raise ValueError('samples: must be an integer')
-        if not isinstance(start, (int, float)):
-            raise ValueError('start: must be a number')
-        if not isinstance(end, (int, float)):
-            raise ValueError('end: must be a number')
-        if samples < 2:
-            raise ValueError('points: needs to be 2 or more')
-
-        use_reversed = end < start
-        if use_reversed:
-            start,end = end,start
-        half = 0.5 if bip else 0.0 # half bit difference between bip and neg,pos
-        byte_start =  int(math.ceil(half + start/self.dac_quata))
-        byte_end = int(math.floor(half + end/self.dac_quata))
-        delta_bytes =  abs(byte_end - byte_start)-1
-        spacing =  max(int(math.floor(delta_bytes / (samples-1))),2)
-        l =  [(el+half)*self.dac_quata
-              for el in range(byte_start, byte_end,spacing)]
-        # Adjust the points until the length is correct
-        if not flexible:
-            if len(l) > samples:
-                if (len(l) - samples)%2==1:
-                    l = l[1:]
-                s = int((len(l) - samples) / 2)
-                if s > 0:
-                    l = l[s:-s]
-            if len(l) < samples:
-                msg = ( 'Insufficient resolution for '+ str(samples)
-                       + ' samples in the range '
-                       + str(start)+' to ' + str(end) )
-                msg += '. Maximum :' + str(len(l))
-                raise ValueError(msg)
-        if len(l) == 0:
-            msg = ('No DAC values exist in the range ' +
-                    str(start) + ' : ' + str(end)
-                  )
-            raise ValueError(msg)
-
-        if use_reversed:
-             l = list(reversed(l))
-        return l
 
     # Conversion of data
     def _dacstep_to_bytes(self, dacstep):
@@ -502,7 +418,7 @@ class IVVI(VisaInstrument):
         proceed = True
 
         if self.check_setpoints():
-            cur_val = self.get('dac{}'.format(channel))
+            cur_val = self.parameters['dac{}'.format(channel)]()
             # dac range in mV / 16 bits FIXME make range depend on polarity
             byte_res = self.full_range / 2**16
             # eps is a magic number to correct for an offset in the values
