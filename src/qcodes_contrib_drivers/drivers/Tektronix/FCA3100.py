@@ -102,11 +102,11 @@ class GeneratedSetPoints(Parameter):
 
     def get_raw(self):
         return np.arange(self._numpointsparam())
-s
+
+
 class FCA3100(VisaInstrument):
     """
     This is the qcodes driver for the FCA3100 counter
-<<<<<<< HEAD
     """
 
     def __init__(self,
@@ -180,47 +180,3 @@ class FCA3100(VisaInstrument):
                            )
 
         self.connect_message()
-=======
-
-    Args:
-      name (str): What this instrument is called locally.
-      address (str): The GPIB address of this instrument
-      kwargs (dict): kwargs to be passed to VisaInstrument class
-      terminator (str): read terminator for reads/writes to the instrument.
-    """
-
-    def __init__(self, name: str, address: str, 
-                 **kwargs) -> None:
-        super().__init__(name, address, device_clear = False, **kwargs)
-
-       
-#        self.add_parameter('output',
-#                           label='Output State',
-#                           get_cmd=self.state,
-#                           set_cmd=lambda x: self.on() if x else self.off(),
-#                           val_mapping={
-#                               'off': 0,
-#                               'on': 1,
-#                           })
-#
-        self.add_parameter('timeinterval',
-                           label='timeinterval',
-                           unit='s',
-                           get_cmd="MEASure:TINTerval",
-                           get_parser=float
-                           )
-
-        self.add_parameter(name='timestats',
-                           parameter_class=TimeStatistics)
-        
-        self.connect_message()
-
-    
-    def reset(self):
-        return
-    
-    def startread(self):
-        self.ask("Read?")
-        return
-
->>>>>>> master
