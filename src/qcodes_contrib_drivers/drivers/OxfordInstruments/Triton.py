@@ -32,7 +32,6 @@ class Triton(Instrument):
         You must provide a valid path toward the VCL converter and consequently
         we advice users to make sure the converter is always reachable by the
         driver.
-
         Args:
             name: Name of the instrument.
             file_path: Path of the vcl log file.
@@ -125,7 +124,6 @@ class Triton(Instrument):
         The executable is called through the python subprocess library.
         To avoid to frequent file conversion, a timer of self.conversion_timer
         second is used.
-
         Returns:
             str: The output of the bash command
         """
@@ -155,7 +153,6 @@ class Triton(Instrument):
         
         Args:
             channel: Channel from which the temperature is extracted.
-
         Returns:
             temperature: Temperature of the channel in Kelvin.
         """
@@ -193,7 +190,6 @@ class Triton(Instrument):
         
         Args:
             channel: Channel from which the pressure is extracted.
-
         Returns:
             pressure: Pressure of the channel in Bar.
         """
