@@ -5,36 +5,35 @@ from time import perf_counter
 from os import path
 from qcodes import Instrument
 from qcodes.utils.validators import Numbers
+from qcodes_contrib_drivers.drivers.Keysight.SD_common.SD_DIG import SD_DIG
+from qcodes_contrib_drivers.drivers.Keysight.SD_common.SD_Module import result_parser
+import keysightSD1 as SD1
 
-try:
-    import keysightSD1 as SD1
-except:
-    import sys
-    sys.path.append('C:\Program Files\Keysight\SD1\Libraries\Python')
-    import keysightSD1 as SD1
 
 
 from . import Keysight_fpga_utils as fpga_utils
 
 
 
-class Keysight_M3102A(Instrument):
+class Keysight_M3102A(SD_DIG):
 
-    def __init__(self,name: str, chassis: int, slot: int,**kwargs):
+    def __init__(self, name, chassis, slot, channels, triggers, **kwargs):
     
-        super().__init__(name,**kwargs)
+        super().__init__(name, chassis, slot, channels, triggers, **kwargs)
         
-        DIGI_PRODUCT = "M3102A"                # Product's model number
+        DIGI_PRODUCT = self.product_name.get()#"M3102A"                # Product's model number
         CHASSIS = chassis                      # Chassis number holding product
         SLOT = slot                        # Slot number of product in chassis
  
         self.bit_depth=15
-        self.digi_clock = 500e6 # s
+        self.digi_clock = self.sys_frequency.get() 
 
         self.core=SD1.SD_AIN()
+        self.result_parser = result_parser
+        self.fpga_utils = fpga_utils
 
-        self.open(DIGI_PRODUCT, CHASSIS, SLOT)
-        print('digi loaded')
+        #self.open(DIGI_PRODUCT, CHASSIS, SLOT)
+        #print('digi loaded')
 
         self.fpga_loaded = 0
 
@@ -51,37 +50,45 @@ class Keysight_M3102A(Instrument):
         # print('Elapsed '+str(perf_counter()-t0)+' s.')
 
         
-    def start(self,channel):
-        self.core.DAQstart(channel)
+    # Redundant
+    # def start(self,channel):
+    #     self.core.DAQstart(channel)
         
-    def flush_buffer(self,channel):
-        self.core.DAQflush(channel)
+    # Redundant
+    # def flush_buffer(self,channel):
+    #     self.core.DAQflush(channel)
         
-    def pause(self,channel):
-        self.core.DAQpause(channel)
+    # Added to SD_DIG.py
+    # def pause(self,channel):
+    #     self.core.DAQpause(channel)
     
-    def resume(self,channel):
-        self.core.DAQresume(channel)
+    # Added to SD_DIG.py
+    # def resume(self,channel):
+    #     self.core.DAQresume(channel)
         
-    def stop(self,channel):
-        self.core.DAQstop(channel)
+    # Redundant
+    # def stop(self,channel):
+    #     self.core.DAQstop(channel)
         
-    def trigger(self,channel):
-        self.core.DAQtrigger(channel)
+    # Redundant
+    # def trigger(self,channel):
+    #     self.core.DAQtrigger(channel)
 
-    def open(self, DIGI_PRODUCT, CHASSIS, SLOT): 
-        core_id = self.core.openWithSlot(DIGI_PRODUCT, CHASSIS, SLOT)
+    # Redundant
+    # def open(self, DIGI_PRODUCT, CHASSIS, SLOT): 
+    #     core_id = self.core.openWithSlot(DIGI_PRODUCT, CHASSIS, SLOT)
         
-        if core_id < 0:
-            print("Module open error:", core_id)
-        else:
-            print("Module opened:", core_id)
-            print("Module name:", self.core.getProductName())
-            print("Slot:", self.core.getSlot())
-            print("Chassis:", self.core.getChassis())
+    #     if core_id < 0:
+    #         print("Module open error:", core_id)
+    #     else:
+    #         print("Module opened:", core_id)
+    #         print("Module name:", self.core.getProductName())
+    #         print("Slot:", self.core.getSlot())
+    #         print("Chassis:", self.core.getChassis())
 
-    def close(self):
-        self.core.close()
+    # Added to SD_DIG.py
+    # def close(self):
+    #     self.core.close()
 
 #### Configuration functions
 
@@ -89,7 +96,7 @@ class Keysight_M3102A(Instrument):
 #### Digitizer functions
 
     def read_buffer_avg(self,channel,npts):
-        timeout=70 # timeout for reading buffer, timeout for filling buffer in _waitPointsRead
+        timeout=3 # timeout for reading buffer, timeout for filling buffer in _waitPointsRead
         # print(npts)
         self._waitPointsRead(channel,npts)
         daq_data=self.core.DAQread(channel,npts,timeout)
@@ -110,11 +117,12 @@ class Keysight_M3102A(Instrument):
     
 ### FPGA functions
 
-    def load_and_config_fpga(self,directory,bitstream_file):
+    def load_and_config_fpga(self,directory,bitstream_file, verbose=False): # load_fpga_image in SD_Module.py
         dig_bitstream = path.join(directory, bitstream_file)
 
         start = perf_counter()
-        fpga_utils.check_error(self.core.FPGAload(dig_bitstream), 'loading dig bitstream')
+        self.result_parser(self.core.FPGAload(dig_bitstream))
+        #fpga_utils.check_error(self.core.FPGAload(dig_bitstream), 'loading dig bitstream')
         duration = (perf_counter() - start) * 1000
         print(f'dig {self.core.getSlot()}: {duration:5.1f} ms')
 
@@ -135,7 +143,9 @@ class Keysight_M3102A(Instrument):
         '''
         if self.fpga_loaded:
             for entry in dict_to_write:
+                print('to fpga_utils.writefpgamk',self.core, registerbank_name+'_' + entry, dict_to_write[entry])
                 fpga_utils.write_fpga(self.core, registerbank_name+'_' + entry, dict_to_write[entry])
+                
 
         else:
             print('No bitstream loaded to FPGA')
