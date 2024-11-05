@@ -2,6 +2,7 @@ from qcodes.utils.validators import Numbers, Enum, Ints
 from functools import partial
 
 from .SD_Module import *
+from . import Keysight_fpga_utils as fpga_utils
 
 
 class SD_DIG(SD_Module):
@@ -795,4 +796,4 @@ class SD_DIG(SD_Module):
         """ Closes object and connection to module
 
         """        
-        self.SD_AIN.close()
+        self.SD_AIN.FAINF()

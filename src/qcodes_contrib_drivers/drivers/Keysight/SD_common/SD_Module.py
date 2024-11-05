@@ -2,6 +2,9 @@ import warnings
 import os
 from typing import Any, Callable, Dict, List, Optional, Union
 from qcodes.instrument.base import Instrument
+from time import perf_counter
+import numpy as np
+from . import Keysight_fpga_utils as fpga_utils
 
 try:
     import keysightSD1
@@ -71,7 +74,12 @@ class SD_Module(Instrument):
 
         # Create instance of keysight module class
         self.SD_module = module_class()
+        self.fpga_utils = fpga_utils
 
+        #Intialise some parameters and imports
+        self.bit_depth=15
+        self.digi_clock = 5e8#self.sys_frequency.get() 
+        
         # Open the device, using the specified chassis and slot number
         self.module_name = self.SD_module.getProductNameBySlot(chassis, slot)
         result_parser(self.module_name,
@@ -418,3 +426,112 @@ class SD_Module(Instrument):
         value = self.SD_module.runSelfTest()
         print(f'Did self test and got result: {value}')
         return value
+
+#-------------------------------------
+# Test functions from Antonio's code
+#-------------------------------------
+    def _waitPointsRead(self,channel,npts):
+        timeout=3
+        t0=perf_counter()
+        totalPointsRead = 0
+        while totalPointsRead< npts and perf_counter()-t0 < timeout:
+            totalPointsRead= self.SD_module.DAQcounterRead(channel)
+
+    def read_buffer_avg(self,channel,npts):
+        timeout=3 # timeout for reading buffer, timeout for filling buffer in _waitPointsRead
+        # print(npts)
+        self._waitPointsRead(channel,npts)
+        daq_data=self.SD_module.DAQread(channel,npts,timeout)
+        value=np.mean(daq_data)*self.SD_module.channelFullScale(channel)/2**(self.bit_depth)
+        
+        return value
+    
+
+    def read_buffer_array(self, channel, npts):
+        timeout=3
+        print(npts)
+        # npts = window_length*self.digi_clock
+        self._waitPointsRead(channel,npts)
+        daq_data=self.SD_module.DAQread(channel,npts,timeout)
+        daq_data=daq_data*self.SD_module.channelFullScale(channel)/2**(self.bit_depth)
+        
+        return daq_data 
+    
+### FPGA functions
+
+    def load_and_config_fpga(self,directory,bitstream_file, verbose=False): # load_fpga_image in SD_Module.py
+        dig_bitstream = os.path.join(directory, bitstream_file)
+
+        start = perf_counter()
+        result_parser(self.SD_module.FPGAload(dig_bitstream))
+        #fpga_utils.check_error(self.core.FPGAload(dig_bitstream), 'loading dig bitstream')
+        duration = (perf_counter() - start) * 1000
+        print(f'dig {self.SD_module.getSlot()}: {duration:5.1f} ms')
+
+        self.SD_module.FPGAconfigureFromK7z(dig_bitstream)
+
+        self.fpga_loaded = 1
+
+
+    def get_fpga_registers(self):
+        if self.fpga_loaded:
+            fpga_utils.fpga_list_registers(self.SD_module)
+        else:
+            print('No bitstream loaded to FPGA')
+
+    def fpga_write_to_registerbank(self,registerbank_name,dict_to_write):
+        '''
+        dict_to_write of the form: {register_name: value, ...}
+        '''
+        if self.fpga_loaded:
+            for entry in dict_to_write:
+                print('to fpga_utils.writefpga',self.SD_module, registerbank_name+'_' + entry, dict_to_write[entry])
+                fpga_utils.write_fpga(self.SD_module, registerbank_name+'_' + entry, dict_to_write[entry])
+                
+
+        else:
+            print('No bitstream loaded to FPGA')
+
+
+    def fpga_read_registerbank(self,registerbank_name,register_name):
+        if self.fpga_loaded:
+            value = fpga_utils.read_fpga(self.SD_module, registerbank_name+'_' + register_name)
+            # value = value*self.core.channelFullScale(channel)/2**(self.bit_depth) # this is handled at NEInstruments
+        else:
+            print('No bitstream loaded to FPGA')
+
+        return value
+
+def trim(s):
+    end = s.index('\x00')
+    return s[:end]
+
+def fpga_return_RW_registers(module):
+
+    done = False
+    n = 0
+    registers = []
+    while not done:
+        n += 1
+        result = module.FPGAgetSandBoxRegisters(n)
+        if isinstance(result, int) and result < 0:
+            done = True
+        else:
+            registers = result
+    rwregcounter = 0
+    for reg in registers:
+        access_type = trim(reg.AccessType)
+        if access_type == 'RW' and reg.Length == 4:
+            rwregcounter = rwregcounter+1
+    
+    regnames = [None]*rwregcounter
+    regvals = [None]*rwregcounter
+    for nreg,reg in enumerate(registers):
+        if reg.Address > 2**24:
+            raise Exception(f'Reg {reg.Address:6} ({reg.Length:6}) {trim(reg.Name)}')
+        access_type = trim(reg.AccessType)
+        if access_type == 'RW' and reg.Length == 4:
+            rwregcounter = rwregcounter+1
+            regnames[nreg]=trim(reg.Name)
+            regvals[nreg]=reg.readRegisterInt32()
+    return regnames,regvals
