@@ -25,7 +25,8 @@ from qcodes.parameters import (
 log = logging.getLogger(__name__)
 
 
-class MS2090A(VisaInstrument):
+#class MS2090A(VisaInstrument):
+class MS2090A(IPInstrument):
     """
     Alpha qcodes driver for the Anritsu MS2090A series
 
@@ -43,16 +44,20 @@ class MS2090A(VisaInstrument):
     def __init__(self, 
                  name: str, 
                  address: str, 
+                 port: int,
                  terminator='\r\n',
+                 timeout: float = 5,
                  **kwargs):
 
         super().__init__(name=name, 
-                         address=address,  
+                         address=address, 
+                         port = port, 
                          terminator=terminator, 
                          **kwargs)
 
         self.write_termination=terminator
         self.read_termination='\n'
+        self._buffer_size = 999999
 
         model = self.get_idn()['model'].split('-')[0]
         
@@ -131,7 +136,7 @@ class MS2090A(VisaInstrument):
         """
         Display a grid of channels rows by cols
         """
-        self.write('DISP:LAY GRID;:DISP:LAY:GRID {},{}'.format(rows, cols))
+        self._send('DISP:LAY GRID;:DISP:LAY:GRID {},{}'.format(rows, cols))
 
     # def _get_trace(self, ntrace)
     #     ylist = list(map(str.strip, self.ask_raw(f'TRAC:DATA? TRACE{i}').split(',')))
@@ -145,7 +150,7 @@ class MS2090A(VisaInstrument):
         return var.rstrip()[1:-1]
 
     def _set_start(self, val):
-        self.write('SENS:FREQ:START {:.7f}'.format(val))
+        self._send('SENS:FREQ:START {:.7f}'.format(val))
         stop = self.stop()
         if val >= stop:
             raise ValueError(
@@ -162,7 +167,7 @@ class MS2090A(VisaInstrument):
         if val <= start:
             raise ValueError(
                 "Stop frequency must be larger than start frequency.")
-        self.write('SENS:FREQ:STOP {:.7f}'.format(val))
+        self._send('SENS:FREQ:STOP {:.7f}'.format(val))
         # we get stop as the vna may not be able to set it to the exact value provided
         stop = self.stop()
         if val != stop:
@@ -171,26 +176,26 @@ class MS2090A(VisaInstrument):
         #self._update_traces()
 
     def _set_npts(self, val):
-        self.write('DISP:POIN {:.7f}'.format(val))
+        self._send('DISP:POIN {:.7f}'.format(val))
         #self._update_traces()
 
     def _set_span(self, val):
-        self.write('SENS:FREQ:SPAN {:.7f}'.format(val))
+        self._send('SENS:FREQ:SPAN {:.7f}'.format(val))
         #self._update_traces()
 
     def _set_center(self, val):
-        self.write('SENS:FREQ:CENT {:.7f}'.format(val))
+        self._send('SENS:FREQ:CENT {:.7f}'.format(val))
         #time.sleep(0.01)
         #self._update_traces()
 
     def _set_video_bandwidth(self, val):
-        self.write('SENS:BWID:VID {:.7f}'.format(val))
+        self._send('SENS:BWID:VID {:.7f}'.format(val))
     
     def _set_resolution_bandwidth(self, val):
-        self.write('SENS:BWID:RES {:.7f}'.format(val))
+        self._send('SENS:BWID:RES {:.7f}'.format(val))
 
     def _set_span(self,val):
-        self.write('SENS:FREQ:SPAN {:.7f}'.format(val))
+        self._send('SENS:FREQ:SPAN {:.7f}'.format(val))
 
     def query(self, val):
         cmd = val
@@ -264,17 +269,44 @@ class FrequencySweep(ArrayParameter):
         return self._get_sweep_data()
 
     def _get_sweep_data(self, force_polar: bool = False) -> np.ndarray:
-        self._instrument.write("SENS:SWE:COUN 1")
-        self._instrument.write("SENS:AVER:STAT1 ON")
-        self._instrument.write("SENS:AVER:COUN 1")
-        self._instrument.write("INIT:CONT OFF")
-        self._instrument.write("INIT; *WAI")
-        ylist = list(map(str.strip, self._instrument.ask_raw('TRAC:DATA? TRACE1').split(',')))
-        datay =[float(i) for i in ylist]
-        self._instrument.write("INIT:CONT ON")
-        return datay
-        #xlist = list(map(str.strip, self._instrument.ask_raw('TRAC:DATA:X? TRACE1').split(',')))
-        #datax =[float(i) for i in xlist]        
+        # The device gives more data than nbytes indicates, so lets check against npoints
+        npoints = self._instrument.npts.get()
+        # The command send two responses: firstly the header indicating the block length (which we ignore), then the data itself
+        self._instrument._send("INIT:CONT OFF")
+        self._instrument._send("INIT; *WAI")
+        trace = self._instrument.ask_raw('TRAC:DATA? 1')
+        headerlength = int(trace[1])+ 2
+        nbytes = int(trace[2:headerlength])
+        if len(trace) > headerlength:
+            trace = trace[headerlength:]
+            print(len(trace.encode('utf8')))
+            print(nbytes)
+            while len(trace.encode('utf8')) < nbytes:
+                trace = trace + self._instrument._recv()
+
+        else:
+            trace = self._instrument._recv()
+            print(len(trace.encode('utf8')))
+            print(nbytes)
+            while len(trace.encode('utf8')) < nbytes:
+                trace = trace + self._instrument._recv()
+            
+        # The data is now a string of '-169.22', '-140.22', ... , so convert to float array  
+        self._instrument._send("INIT:CONT ON")
+        return np.array(trace.split(','), dtype=np.float32)
+        
+
+        # #self._instrument.write("SENS:SWE:COUN 1")
+        # #self._instrument.write("SENS:AVER:STAT1 ON")
+        # #self._instrument.write("SENS:AVER:COUN 1")
+        # self._instrument.write("INIT:CONT OFF")
+        # #self._instrument.write("INIT; *WAI")
+        # ylist = list(map(str.strip, self._instrument.ask_raw('TRAC:DATA? TRACE1').split(',')))
+        # datay =[float(i) for i in ylist]
+        # self._instrument.write("INIT:CONT ON")
+        # return datay
+        # #xlist = list(map(str.strip, self._instrument.ask_raw('TRAC:DATA:X? TRACE1').split(',')))
+        # #datax =[float(i) for i in xlist]        
 
         # It is possible that the instrument and QCoDeS disagree about
         # which parameter is measured on this channel.
