@@ -1,6 +1,11 @@
 import warnings
 import os
+<<<<<<< HEAD:src/qcodes_contrib_drivers/drivers/Keysight/SD_common/SD_Module.py
 from typing import Any, Callable, Dict, List, Optional, Union
+=======
+import logging
+from typing import List, Union, Callable, Any
+>>>>>>> master:qcodes_contrib_drivers/drivers/Keysight/SD_common/SD_Module.py
 from qcodes.instrument.base import Instrument
 from time import perf_counter
 import numpy as np
@@ -302,6 +307,192 @@ class SD_Module(Instrument):
             raise Exception(f'FPGA bitstream {filename} not found')
         result_parser(self.SD_module.FPGAload(filename),
                       f'loading FPGA bitstream: {filename}')
+
+    #
+    # FPGA utils legacy
+    #
+    # from SD1_utils, Delft 
+    def check_error(self, result, s=''):
+        if (type(result) is int and result < 0):
+            error = result
+            msg = f'Keysight error: {keysightSD1.SD_Error.getErrorMessage(error)} ({error}) {s}'
+            logging.error(msg)
+        return result
+    #### 
+
+    def trim(self, s):
+        end = s.index('\x00')
+        return s[:end]
+
+
+    def write_fpga(self, reg_name, value):
+        reg = self.check_error(self.SD_module.FPGAgetSandBoxRegister(reg_name), reg_name)
+        reg.writeRegisterInt32(value)
+
+    def read_fpga(self, reg_name):
+        reg = self.check_error(self.SD_module.FPGAgetSandBoxRegister(reg_name), reg_name)
+        if reg.Address > 2**24 or reg.Address < 0:
+            raise Exception(f'Register out of range: Reg {reg.Address:6} ({reg.Length:6}) {reg_name}')
+        return reg.readRegisterInt32()
+
+    def write_fpga_array(self, reg_name, offset, data):
+        reg = self.check_error(self.SD_module.FPGAgetSandBoxRegister(reg_name), reg_name)
+        self.check_error(reg.writeRegisterBuffer(offset, data, keysightSD1.SD_AddressingMode.AUTOINCREMENT, keysightSD1.SD_AccessMode.NONDMA),
+                    f'write_fpga_array({reg_name})')
+
+    def read_fpga_array(self, reg_name, offset, data_size):
+        reg = self.check_error(self.SD_module.FPGAgetSandBoxRegister(reg_name), reg_name)
+        data = self.check_error(reg.readRegisterBuffer(offset, data_size,
+                                                keysightSD1.SD_AddressingMode.AUTOINCREMENT, keysightSD1.SD_AccessMode.NONDMA))
+        return data
+
+    def has_fpga_info(self):
+        register = self.SD_module.FPGAgetSandBoxRegister('Host_SysInfo_ImageId')
+        if isinstance(register, int) and register < 0:
+            return False
+        return True
+
+    def get_fpga_info(self):
+        image_id = self.read_fpga(self, 'Host_SysInfo_ImageId')
+        version_date = self.read_fpga(self, 'Host_SysInfo_Version')
+        clock_frequency = self.read_fpga(self, 'Host_SysInfo_ClockFrequency')
+        return image_id, version_date, clock_frequency
+
+    def print_fpga_info(self):
+        if not self.has_fpga_info(self):
+            print(f'No FPGA image info available')
+            return
+        image_id, version_date, clock_frequency = self.get_fpga_info(self)
+        print(f'FPGA image: {image_id}, {version_date}, {clock_frequency} MHz')
+
+    def get_fpga_image_path(self):
+        fw = self.trim(self.SD_module.getFirmwareVersion())
+        major,minor,revision = fw.split('.')
+        module_name = self.check_error(self.SD_module.getProductName(), 'getProductNameBySlot')
+        base_dir = os.path.join(os.getcwd(), '..')
+        return os.path.join(base_dir, 'bitstreams', f'{module_name}_{major[1]}_{minor}_{revision}')
+
+    def fpga_list_registers(self, n=None):
+        if n is not None:
+            registers = self.check_error(self.SD_module.FPGAgetSandBoxRegisters(n))
+        else:
+            done = False
+            n = 0
+            registers = []
+            while not done:
+                n += 1
+                result = self.SD_module.FPGAgetSandBoxRegisters(n)
+                if isinstance(result, int) and result < 0:
+                    done = True
+                else:
+                    registers = result
+
+        for reg in registers:
+            if reg.Address > 2**24:
+                raise Exception(f'Reg {reg.Address:6} ({reg.Length:6}) {self.trim(reg.Name)}')
+            access_type = self.trim(reg.AccessType)
+            if access_type == 'RW' and reg.Length == 4:
+                print(f'Reg {reg.Address:6} ({reg.Length:6}) {access_type} {self.trim(reg.Name)}: {reg.readRegisterInt32()}')
+            elif access_type == 'RW' and reg.Length == 1:
+                print(f'HVI {reg.Address:6} ({reg.Length:6}) {access_type} {self.trim(reg.Name)}')
+            elif access_type == 'MemoryMap':
+                print(f'Mem {reg.Address:6} ({reg.Length:6}) {access_type} {self.trim(reg.Name)}')
+                data = reg.readRegisterBuffer(0, min(16, reg.Length//4),
+                                            keysightSD1.SD_AddressingMode.AUTOINCREMENT, keysightSD1.SD_AccessMode.NONDMA)
+                print(data)
+
+
+    def config_fpga_debug_log(self, change_mask=0, enable_mask=0, capture_start_mask=0, capture_duration=0):
+        regs = [change_mask, enable_mask, capture_start_mask, capture_duration]
+        self.write_fpga_array(self, 'Host_LogMemory', 2**11+2, regs)
+
+
+    def print_fpga_log(self, clear=False, clock200=False, column=None, formatter=None):
+        d = 2 if clock200 else 1
+        log_reg = self.check_error(self.SD_module.FPGAgetSandBoxRegister('Host_LogMemory'), 'Host_LogMemory')
+        log_info = log_reg.readRegisterBuffer(2**11, 2, keysightSD1.SD_AddressingMode.AUTOINCREMENT, keysightSD1.SD_AccessMode.NONDMA)
+        print(f'FPGA logging: {log_info} entries')
+        print('  systick relative    delta --      value      hex    .' + (column if column is not None else ''))
+        n_entries = log_info[1]
+        if n_entries > 0:
+            log_data = log_reg.readRegisterBuffer(0, 2*n_entries,
+                                                keysightSD1.SD_AddressingMode.AUTOINCREMENT, keysightSD1.SD_AccessMode.NONDMA)
+            t0 = (log_data[1] & 0xFFFFFFFF) // d
+            t_last = t0
+            for i in range(n_entries):
+                t = (log_data[2*i+1] & 0xFFFFFFFF) // d
+                v = log_data[2*i] & 0xFFFFFFFF
+                formatted = formatter(v) if formatter is not None else ''
+                print(f'{t:9} {t-t0:8} {t-t_last:+8} -- {v:10} ({v>>16:04X} {v&0xFFFF:04X}) {formatted}')
+                t_last = t
+        if clear:
+            self.check_error(log_reg.writeRegisterBuffer(2**11, [1], keysightSD1.SD_AddressingMode.AUTOINCREMENT, keysightSD1.SD_AccessMode.NONDMA))
+
+
+    class FpgaSysExtension:
+        def __init__(self, name, builder):
+            self.name = name
+            self.builder = builder
+            engine = builder.engine
+            self.ticks_register = engine.fpga_register('HVI_SysInfo_SysTicks')
+            self.ticks_clear_register = engine.fpga_register('HVI_SysInfo_Clear')
+
+        @property
+        def ticks(self):
+            return self.ticks_register
+
+        def clear_ticks(self):
+            self.builder.write_fpga(self.ticks_clear_register, 0, text=f'{self.name}.clear_ticks()')
+
+
+    class FpgaNoLogExtension:
+        def __init__(self, name, builder):
+            self.name = name
+            self.builder = builder
+
+        def write(self, value):
+            self.builder.wait(10)
+
+        def capture(self, n_ticks):
+            self.builder.wait(10)
+
+
+    class FpgaLogExtension:
+        def __init__(self, name, builder):
+            self.name = name
+            self.builder = builder
+            engine = builder.engine
+            self.log_register = engine.fpga_register('HVI_Log_Data')
+            self.capture_register = engine.fpga_register('HVI_Log_Capture')
+
+        def write(self, value):
+            self.builder.write_fpga(self.log_register, value, text=f'{self.name}.write({value})')
+
+        def capture(self, n_ticks):
+            self.builder.write_fpga(self.capture_register, n_ticks, text=f'{self.name}.capture({n_ticks})')
+
+    def dummy(*args, **kwargs):
+        pass
+
+    class FpgaMissingExtension:
+        def __init__(self, name, builder):
+            self._name = name
+            self._warned = False
+
+        def __getattr__(self, name):
+            if not self._warned:
+                self.logging.warn(f'hvi2 extension {self._name} not loaded')
+                self._warned = True
+            return self.dummy
+
+        def __setattr__(self, name, value):
+            if name not in ['_warned', '_name']:
+                if not self._warned:
+                    self.logging.warn(f'hvi2 extension {self._name} not loaded')
+                    self._warned = True
+            else:
+                object.__setattr__(self, name, value)
+
 
     #
     # HVI related functions

@@ -68,7 +68,7 @@ class FSW(VisaInstrument):
 
         self.add_parameter(name='span',
                    get_cmd='SENS:FREQ:SPAN?',
-                   set_cmd='_set_span',
+                   set_cmd=self._set_span,
                    get_parser=float)
         
    
@@ -112,7 +112,7 @@ class FSW(VisaInstrument):
         if val != start:
             log.warning(
                 "Could not set start to {} setting it to {}".format(val, start))
-        self._update_traces()
+        #self._update_traces()
 
     def _set_stop(self, val):
         start = self.start()

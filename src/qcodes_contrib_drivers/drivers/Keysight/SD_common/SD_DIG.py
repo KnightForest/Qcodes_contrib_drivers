@@ -1,8 +1,12 @@
 from qcodes.utils.validators import Numbers, Enum, Ints
 from functools import partial
-
+import logging
 from .SD_Module import *
+<<<<<<< HEAD:src/qcodes_contrib_drivers/drivers/Keysight/SD_common/SD_DIG.py
 from . import Keysight_fpga_utils as fpga_utils
+=======
+#from ..Keysight_fpga_utils import *
+>>>>>>> master:qcodes_contrib_drivers/drivers/Keysight/SD_common/SD_DIG.py
 
 
 class SD_DIG(SD_Module):
@@ -32,7 +36,6 @@ class SD_DIG(SD_Module):
         self.n_triggers = triggers
 
         self.SD_AIN = self.SD_module
-
         #
         # Create a set of internal variables to aid set/get cmds in params
         #
@@ -790,6 +793,7 @@ class SD_DIG(SD_Module):
             channel (int)       : the input channel you are configuring
             timeout (int)       : the read timeout in ms for the specified DAQ
         """
+<<<<<<< HEAD:src/qcodes_contrib_drivers/drivers/Keysight/SD_common/SD_DIG.py
         self.__timeout[channel] = timeout
     
     def close(self):
@@ -797,3 +801,6 @@ class SD_DIG(SD_Module):
 
         """        
         self.SD_AIN.FAINF()
+=======
+        self.__timeout[channel] = timeout
+>>>>>>> master:qcodes_contrib_drivers/drivers/Keysight/SD_common/SD_DIG.py
