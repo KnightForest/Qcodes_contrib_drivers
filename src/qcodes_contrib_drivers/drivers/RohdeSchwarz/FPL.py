@@ -62,13 +62,13 @@ class FPL(VisaInstrument):
                    set_cmd=self._set_resolution_bandwidth,
                    get_parser=float)
         
-        # self.add_parameter(name='power',
-        #            get_cmd='CALC:MARK:FUNC:POW:RES?',
-        #            get_parser=float)
+        self.add_parameter(name='power',
+                   get_cmd='CALC:MARK:FUNC:POW:RES?',
+                   get_parser=float)
         
-        # self.add_parameter(name='obwpower',
-        #            get_cmd='CALC:MARK:FUNC:POW:SEL? ACP',
-        #            get_parser=float)
+        self.add_parameter(name='obwpower',
+                   get_cmd=self._get_obwpower,
+                   get_parser=float)
 
         self.add_parameter(name='span',
                    get_cmd='SENS:FREQ:SPAN?',
@@ -90,7 +90,6 @@ class FPL(VisaInstrument):
             channel=1,
             parameter_class=FrequencySweep,
         )
-        
    
         self.add_function('reset', call_cmd='*RST')
         self.add_function('tooltip_on', call_cmd='SYST:ERR:DISP ON')
@@ -105,10 +104,49 @@ class FPL(VisaInstrument):
                           call_cmd='DISP:LAY GRID;:DISP:LAY:GRID 1,1')
         self.add_function('display_dual_window',
                           call_cmd='DISP:LAY GRID;:DISP:LAY:GRID 2,1')
-
-
         self.update_display_on()
         self.connect_message()
+
+        #Nick's 'adjustments'
+        self.add_function('average', call_cmd='SENS:WIND1:DET1:FUNC AVER')
+
+        self.add_function('maximum_powerrr', call_cmd= 'INT:GAIN:STAT ON')
+        self.add_function('minimum_powerrr', call_cmd= 'INT:GAIN:STAT OFF')
+        self.add_function('attenuator_off', call_cmd= 'INT:ATT:AUTO OFF')
+
+
+        self.add_parameter(
+            name="attenuator",
+            get_cmd="INP:ATT?",
+            set_cmd=self._set_attenuator,
+            get_parser=int,
+        )
+
+        self.add_parameter(
+            name="preamp_status",
+            get_cmd="INP:GAIN:STAT?",
+            set_cmd=self._set_preamp,
+            get_parser=int,
+        )
+
+        self.add_parameter(
+            name="sweep_time",
+            get_cmd="SENS:SWE:TIME?",
+            set_cmd=self._set_swt,
+            get_parser=float,
+        )
+
+    def _set_attenuator(self, val): #N
+        self.write('INP:ATT {:.7f}'.format(val))
+        #self._update_traces()
+
+    def _set_swt(self, val): #N
+        self.write('SENS:SWE:TIME {:.7f}'.format(val))
+        #self._update_traces()
+
+    def _set_preamp(self, status): #N
+        self.write('INP:GAIN:STAT '+str(status))
+#________________________________________________________
 
 
     def display_grid(self, rows: int, cols: int):
@@ -154,6 +192,9 @@ class FPL(VisaInstrument):
                 "Could not set stop to {} setting it to {}".format(val, stop))
         #self._update_traces()
 
+    def _get_obwpower(self):
+        return self.ask('CALC:MARK:FUNC:POW:RES? ACP',).split(',')[0]
+
     def _set_npts(self, val):
         self.write('SENS:SWE:POIN {:.7f}'.format(val))
         #self._update_traces()
@@ -175,6 +216,9 @@ class FPL(VisaInstrument):
 
     def _set_span(self,val):
         self.write('SENS:FREQ:SPAN {:.7f}'.format(val))
+
+    def _set_average(self):
+        self.write(':SENS:WIND1:DET1:FUNC AVER')
 
 class FrequencySweep(ArrayParameter):
     """
@@ -216,9 +260,11 @@ class FrequencySweep(ArrayParameter):
             setpoint_names=(f"{instrument.short_name}_frequency",),
             **kwargs,
         )
-        self.set_sweep(start, stop, npts)
+        print(start,stop,npts)
         self._instrument_channel = channel
         self._instrument = instrument
+        self.set_sweep(start, stop, npts)
+
 
     def set_sweep(self, start: float, stop: float, npts: int) -> None:
         """
@@ -233,6 +279,11 @@ class FrequencySweep(ArrayParameter):
         """
         # Needed to update config of the software parameter on sweep change
         # freq setpoints tuple as needs to be hashable for look up.
+        #start = self._instrument.start()
+        #stop = self._instrument.stop()
+        #npts = self._instrument.npts()
+        #print(start,stop,npts)
+
         f = tuple(np.linspace(int(start), int(stop), num=npts))
         self.setpoints = (f,)
         self.shape = (npts,)
@@ -242,6 +293,10 @@ class FrequencySweep(ArrayParameter):
         return self._get_sweep_data()
 
     def _get_sweep_data(self, force_polar: bool = False) -> np.ndarray:
+        start = self._instrument.start()
+        stop = self._instrument.stop()
+        npts = self._instrument.npts()
+        self.set_sweep(start, stop, npts)
         self._instrument.write("SENS:SWE:COUN 1")
         self._instrument.write("SENS:AVER:STAT1 ON")
         self._instrument.write("SENS:AVER:COUN 1")
