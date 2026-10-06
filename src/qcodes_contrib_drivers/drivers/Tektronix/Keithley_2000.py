@@ -131,7 +131,9 @@ class Keithley_2000(VisaInstrument):
                                           Enum('inf',
                                                'default',
                                                'minimum',
-                                               'maximum')))
+                                               'maximum')),
+                            snapshot_get = False,
+                            snapshot_exclude = True)
 
         self.add_parameter('trigger_delay',
                            get_cmd='TRIG:DEL?',

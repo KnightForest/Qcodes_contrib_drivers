@@ -41,35 +41,46 @@ class FPL(VisaInstrument):
         model = self.get_idn()['model'].split('-')[0]
         
         self.add_parameter(name='start',
+                           unit = 'Hz' ,
+                           label = 'Start frequency',
                            get_cmd='SENS:FREQ:START?',
                            set_cmd=self._set_start,
                            get_parser=float)
         self.add_parameter(name='stop',
+                           unit = 'Hz' ,
+                           label = 'Stop frequency',
                            get_cmd='SENS:FREQ:STOP?',
                            set_cmd=self._set_stop,
                            get_parser=float)
         self.add_parameter(name='center',
-                   get_cmd='SENS:FREQ:CENT?',
-                   set_cmd=self._set_center,
-                   get_parser=float)
+                           unit = 'Hz' ,
+                           label = 'Center frequency',
+                           get_cmd='SENS:FREQ:CENT?',
+                           set_cmd=self._set_center,
+                           get_parser=float)
         self.add_parameter(name='video_bandwidth',
-                   get_cmd='SENS:BWID:VID?',
-                   set_cmd=self._set_video_bandwidth,
-                   get_parser=float)
-
+                           unit = 'Hz' ,
+                           label = 'Video bandwidth',
+                           get_cmd='SENS:BWID:VID?',
+                           set_cmd=self._set_video_bandwidth,
+                           get_parser=float)
         self.add_parameter(name='resolution_bandwidth',
-                   get_cmd='SENS:BWID:RES?',
-                   set_cmd=self._set_resolution_bandwidth,
-                   get_parser=float)
-        
+                           unit = 'Hz' ,
+                           label = 'Resolution bandwidth',
+                           get_cmd='SENS:BWID:RES?',
+                           set_cmd=self._set_resolution_bandwidth,
+                           get_parser=float)
         self.add_parameter(name='power',
-                   get_cmd='CALC:MARK:FUNC:POW:RES?',
-                   get_parser=float)
-        
-        self.add_parameter(name='obwpower',
-                   get_cmd=self._get_obwpower,
-                   get_parser=float)
-
+                           unit = 'dBm' ,
+                           label = 'Power',
+                           get_cmd='CALC:MARK:FUNC:POW:RES?',
+                           get_parser=float)
+        self.add_parameter(name='aclrpower',
+                           unit = 'dBm' ,
+                           label = 'ACLR power',
+                           get_cmd=self._get_aclrpower,
+                           get_parser=float,
+                           snapshot_get=False)
         self.add_parameter(name='span',
                    get_cmd='SENS:FREQ:SPAN?',
                    set_cmd=self._set_span,
@@ -89,6 +100,7 @@ class FPL(VisaInstrument):
             npts=self.npts(),
             channel=1,
             parameter_class=FrequencySweep,
+            snapshot_get=False,
         )
    
         self.add_function('reset', call_cmd='*RST')
@@ -192,8 +204,13 @@ class FPL(VisaInstrument):
                 "Could not set stop to {} setting it to {}".format(val, stop))
         #self._update_traces()
 
-    def _get_obwpower(self):
-        return self.ask('CALC:MARK:FUNC:POW:RES? ACP',).split(',')[0]
+    def _get_aclrpower(self):
+
+        self.write("INIT:CONT OFF")
+        self.write("INIT; *WAI")
+        result = self.ask('CALC:MARK:FUNC:POW:RES? ACP',).split(',')[0]
+        self.write("INIT:CONT ON")
+        return result
 
     def _set_npts(self, val):
         self.write('SENS:SWE:POIN {:.7f}'.format(val))
@@ -297,9 +314,9 @@ class FrequencySweep(ArrayParameter):
         stop = self._instrument.stop()
         npts = self._instrument.npts()
         self.set_sweep(start, stop, npts)
-        self._instrument.write("SENS:SWE:COUN 1")
-        self._instrument.write("SENS:AVER:STAT1 ON")
-        self._instrument.write("SENS:AVER:COUN 1")
+        # self._instrument.write("SENS:SWE:COUN 1")
+        # self._instrument.write("SENS:AVER:STAT1 ON")
+        # self._instrument.write("SENS:AVER:COUN 1")
         self._instrument.write("INIT:CONT OFF")
         self._instrument.write("INIT; *WAI")
         ylist = list(map(str.strip, self._instrument.ask_raw('TRAC:DATA? TRACE1').split(',')))
