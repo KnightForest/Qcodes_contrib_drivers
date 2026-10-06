@@ -48,7 +48,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from qcodes import IPInstrument
+from qcodes.instrument import IPInstrument
 from qcodes.instrument import InstrumentChannel, InstrumentModule
 from qcodes.validators import Enum, Numbers
 
