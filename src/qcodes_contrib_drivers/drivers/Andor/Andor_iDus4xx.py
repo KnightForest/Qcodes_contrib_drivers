@@ -425,7 +425,7 @@ class PixelAxis(Parameter):
     def __init__(self, name: str, dimension: Literal[0, 1], instrument: 'AndorIDus4xx',
                  **kwargs: Any) -> None:
         self.dimension = dimension
-        super().__init__(name, instrument, **kwargs)
+        super().__init__(name, instrument=instrument, **kwargs)
 
     def get_raw(self) -> npt.NDArray[np.int_]:
         if self.instrument is None:
@@ -469,8 +469,8 @@ class TimeAxis(Parameter):
 class PersistentDelegateParameter(DelegateParameter):
     """A delegate parameter with an independent cache."""
 
-    def __init__(self, name: str, source: Parameter | None, *args: Any, **kwargs: Any):
-        super().__init__(name, source, *args, **kwargs)
+    def __init__(self, name: str, source: Parameter | None, **kwargs: Any):
+        super().__init__(name, source=source, **kwargs)
         self.cache: _CacheProtocol = _Cache(self, max_val_age=kwargs.get('max_val_age', None))
 
 
@@ -572,7 +572,7 @@ class CCDDataDelegateParameter(DelegateParameter, ParameterWithSetpoints):
         kwargs.setdefault('setpoints', getattr(source, 'setpoints'))
         kwargs.setdefault('snapshot_get', getattr(source, '_snapshot_get'))
         kwargs.setdefault('snapshot_value', getattr(source, '_snapshot_value'))
-        super().__init__(name, source, **kwargs)
+        super().__init__(name=name, source=source, **kwargs)
         self._register_with_source(source)
 
     def _register_with_source(self, source):

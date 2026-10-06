@@ -20,8 +20,6 @@ class ITC503(VisaInstrument):
 
         super().__init__(name, address, terminator='\r', **kwargs)
 
-        self._address = address
-
         self.add_parameter(name='temp_1',
                             label='Temperature of sensor 1',
                             get_cmd=lambda: self.get_temp('R1'),
